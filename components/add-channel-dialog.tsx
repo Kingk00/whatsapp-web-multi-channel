@@ -13,11 +13,18 @@ import {
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { ChannelQrDisplay } from '@/components/channel-qr-display'
 
 interface AddChannelDialogProps {
   open: boolean
   onOpenChange: (open: boolean) => void
   onSuccess?: () => void
+}
+
+interface CreatedChannel {
+  id: string
+  name: string
+  status: string
 }
 
 export function AddChannelDialog({
@@ -29,6 +36,8 @@ export function AddChannelDialog({
   const [whapiToken, setWhapiToken] = useState('')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [createdChannel, setCreatedChannel] = useState<CreatedChannel | null>(null)
+  const [showQrDialog, setShowQrDialog] = useState(false)
   const supabase = createClient()
 
   const validateToken = (token: string): boolean => {
@@ -92,11 +101,16 @@ export function AddChannelDialog({
         throw new Error(data.error || 'Failed to add channel')
       }
 
-      // Success
+      // Success - store channel info and show QR dialog
+      setCreatedChannel({
+        id: data.channel.id,
+        name: data.channel.name,
+        status: data.channel.status,
+      })
       setChannelName('')
       setWhapiToken('')
       onOpenChange(false)
-      onSuccess?.()
+      setShowQrDialog(true)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to add channel')
     } finally {
@@ -113,8 +127,23 @@ export function AddChannelDialog({
     }
   }
 
+  const handleQrConnected = () => {
+    setShowQrDialog(false)
+    setCreatedChannel(null)
+    onSuccess?.()
+  }
+
+  const handleQrDialogClose = (open: boolean) => {
+    setShowQrDialog(open)
+    if (!open) {
+      setCreatedChannel(null)
+      onSuccess?.()
+    }
+  }
+
   return (
-    <Dialog open={open} onOpenChange={handleClose}>
+    <>
+      <Dialog open={open} onOpenChange={handleClose}>
       <DialogContent className="sm:max-w-[500px]">
         <form onSubmit={handleSubmit}>
           <DialogHeader>
@@ -221,5 +250,16 @@ export function AddChannelDialog({
         </form>
       </DialogContent>
     </Dialog>
+
+    {createdChannel && (
+      <ChannelQrDisplay
+        channelId={createdChannel.id}
+        channelName={createdChannel.name}
+        open={showQrDialog}
+        onOpenChange={handleQrDialogClose}
+        onConnected={handleQrConnected}
+      />
+    )}
+    </>
   )
 }
