@@ -293,6 +293,9 @@ export async function POST(
       sendDebug.stack = sendError?.stack?.split('\n').slice(0, 3)
     }
 
+    // Log debug info to server logs
+    console.log('=== SEND DEBUG ===', JSON.stringify(sendDebug, null, 2))
+
     return NextResponse.json(
       {
         success: true,
