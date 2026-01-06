@@ -236,26 +236,26 @@ export async function POST(
       .eq('id', chatId)
 
     // Immediately attempt to send via Whapi (don't wait for cron)
-    // Using direct fetch to simplify debugging
+    let sendDebug: any = { step: 'start' }
     try {
-      console.log('[SEND] Starting immediate send...')
-
-      // Get token directly via service client
+      sendDebug.step = 'get_token'
       const serviceClient = createServiceRoleClient()
-      const { data: tokenData } = await serviceClient
+      const { data: tokenData, error: tokenErr } = await serviceClient
         .from('channel_tokens')
         .select('encrypted_token')
         .eq('channel_id', chat.channel_id)
         .eq('token_type', 'whapi')
         .single()
 
-      if (!tokenData) {
-        console.error('[SEND] No token found')
-      } else {
-        console.log('[SEND] Decrypting token...')
-        const token = decrypt(tokenData.encrypted_token)
+      sendDebug.tokenError = tokenErr?.message
+      sendDebug.hasToken = !!tokenData
 
-        console.log('[SEND] Calling Whapi API...')
+      if (tokenData) {
+        sendDebug.step = 'decrypt'
+        const token = decrypt(tokenData.encrypted_token)
+        sendDebug.tokenLength = token?.length
+
+        sendDebug.step = 'whapi_call'
         const whapiResponse = await fetch('https://gate.whapi.cloud/messages/text', {
           method: 'POST',
           headers: {
@@ -268,11 +268,12 @@ export async function POST(
           }),
         })
 
+        sendDebug.whapiStatus = whapiResponse.status
         const whapiResult = await whapiResponse.json()
-        console.log('[SEND] Whapi response:', JSON.stringify(whapiResult))
+        sendDebug.whapiResult = whapiResult
 
         if (whapiResult.sent && whapiResult.message?.id) {
-          // Update outbox and message status
+          sendDebug.step = 'update_db'
           await serviceClient
             .from('outbox_messages')
             .update({ status: 'sent', sent_at: new Date().toISOString(), wa_message_id: whapiResult.message.id })
@@ -284,11 +285,12 @@ export async function POST(
               .update({ wa_message_id: whapiResult.message.id, status: 'sent' })
               .eq('id', message.id)
           }
-          console.log('[SEND] Success! Message ID:', whapiResult.message.id)
+          sendDebug.step = 'done'
         }
       }
     } catch (sendError: any) {
-      console.error('[SEND] Error:', sendError?.message, sendError?.stack)
+      sendDebug.error = sendError?.message
+      sendDebug.stack = sendError?.stack?.split('\n').slice(0, 3)
     }
 
     return NextResponse.json(
@@ -296,6 +298,7 @@ export async function POST(
         success: true,
         message: message || { id: outboxMessage.id },
         outbox_id: outboxMessage.id,
+        _debug: sendDebug,
       },
       { status: 201 }
     )
