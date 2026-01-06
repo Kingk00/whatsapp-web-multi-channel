@@ -73,12 +73,15 @@ const { data: channelData } = await serviceClient
 - GitHub integration (auto-deploy on push)
 
 ### Remaining Work:
-- Team invitations and role-based access
-- Real-time message updates (Supabase Realtime subscriptions)
+- Team invitations and role-based access ← NEXT
 - Media message support (images, documents, etc.)
 - Cron job for outbox processing (backup mechanism)
-- Clean up debug logging code
 - UI polish and error handling
+
+### Already Completed (DO NOT REDO):
+- Real-time message updates (Supabase Realtime) - ALREADY IMPLEMENTED, SKIP THIS
+- Message sending fix (see above)
+- Debug code cleanup
 
 ### Key Identifiers:
 - Supabase Project: `mobokomuxbfqbuzwasbe`
