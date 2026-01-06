@@ -1,7 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient, createServiceRoleClient } from '@/lib/supabase/server'
-import { decrypt } from '@/lib/encryption'
-import { createWhapiClient } from '@/lib/whapi-client'
 
 /**
  * GET /api/chats/[id]/messages
@@ -235,31 +233,28 @@ export async function POST(
       })
       .eq('id', chatId)
 
-    // Immediately attempt to send via Whapi (don't wait for cron)
+    // Immediately attempt to send via Whapi (like bloe-engine approach)
     let sendDebug: any = { step: 'start' }
     try {
-      sendDebug.step = 'get_token'
+      sendDebug.step = 'get_channel'
       const serviceClient = createServiceRoleClient()
-      const { data: tokenData, error: tokenErr } = await serviceClient
-        .from('channel_tokens')
-        .select('encrypted_token')
-        .eq('channel_id', chat.channel_id)
-        .eq('token_type', 'whapi')
+
+      // Get token directly from channels table (bloe-engine approach)
+      const { data: channelData, error: channelErr } = await serviceClient
+        .from('channels')
+        .select('api_token')
+        .eq('id', chat.channel_id)
         .single()
 
-      sendDebug.tokenError = tokenErr?.message
-      sendDebug.hasToken = !!tokenData
+      sendDebug.channelError = channelErr?.message
+      sendDebug.hasToken = !!channelData?.api_token
 
-      if (tokenData) {
-        sendDebug.step = 'decrypt'
-        const token = decrypt(tokenData.encrypted_token)
-        sendDebug.tokenLength = token?.length
-
+      if (channelData?.api_token) {
         sendDebug.step = 'whapi_call'
         const whapiResponse = await fetch('https://gate.whapi.cloud/messages/text', {
           method: 'POST',
           headers: {
-            'Authorization': `Bearer ${token}`,
+            'Authorization': `Bearer ${channelData.api_token}`,
             'Content-Type': 'application/json',
           },
           body: JSON.stringify({
