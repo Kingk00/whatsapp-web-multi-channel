@@ -1,0 +1,29 @@
+{
+  "sandbox": {
+    "enabled": true,
+    "autoAllowBashIfSandboxed": true
+  },
+  "permissions": {
+    "defaultMode": "acceptEdits",
+    "allow": [
+      "Read(./**)",
+      "Write(./**)",
+      "Edit(./**)",
+      "Glob(./**)",
+      "Grep(./**)",
+      "Read(C:\\Users\\Arthu\\OneDrive\\Desktop\\whatsapp web\\.auto-claude\\worktrees\\tasks\\001-pending/**)",
+      "Write(C:\\Users\\Arthu\\OneDrive\\Desktop\\whatsapp web\\.auto-claude\\worktrees\\tasks\\001-pending/**)",
+      "Edit(C:\\Users\\Arthu\\OneDrive\\Desktop\\whatsapp web\\.auto-claude\\worktrees\\tasks\\001-pending/**)",
+      "Glob(C:\\Users\\Arthu\\OneDrive\\Desktop\\whatsapp web\\.auto-claude\\worktrees\\tasks\\001-pending/**)",
+      "Grep(C:\\Users\\Arthu\\OneDrive\\Desktop\\whatsapp web\\.auto-claude\\worktrees\\tasks\\001-pending/**)",
+      "Read(C:\\Users\\Arthu\\OneDrive\\Desktop\\whatsapp web\\.auto-claude\\worktrees\\tasks\\001-pending\\.auto-claude\\specs\\001-pending/**)",
+      "Write(C:\\Users\\Arthu\\OneDrive\\Desktop\\whatsapp web\\.auto-claude\\worktrees\\tasks\\001-pending\\.auto-claude\\specs\\001-pending/**)",
+      "Edit(C:\\Users\\Arthu\\OneDrive\\Desktop\\whatsapp web\\.auto-claude\\worktrees\\tasks\\001-pending\\.auto-claude\\specs\\001-pending/**)",
+      "Bash(*)",
+      "WebFetch(*)",
+      "WebSearch(*)",
+      "mcp__context7__resolve-library-id(*)",
+      "mcp__context7__get-library-docs(*)"
+    ]
+  }
+}
