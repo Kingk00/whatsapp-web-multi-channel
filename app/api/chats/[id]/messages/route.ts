@@ -236,68 +236,59 @@ export async function POST(
       .eq('id', chatId)
 
     // Immediately attempt to send via Whapi (don't wait for cron)
+    // Using direct fetch to simplify debugging
     try {
-      console.log('[SEND] Starting immediate send for chat:', chat.wa_chat_id)
-      const serviceClient = createServiceRoleClient()
+      console.log('[SEND] Starting immediate send...')
 
-      // Get channel token
-      const { data: channelToken, error: tokenError } = await serviceClient
+      // Get token directly via service client
+      const serviceClient = createServiceRoleClient()
+      const { data: tokenData } = await serviceClient
         .from('channel_tokens')
         .select('encrypted_token')
         .eq('channel_id', chat.channel_id)
         .eq('token_type', 'whapi')
         .single()
 
-      if (tokenError) {
-        console.error('[SEND] Token fetch error:', tokenError)
-      }
+      if (!tokenData) {
+        console.error('[SEND] No token found')
+      } else {
+        console.log('[SEND] Decrypting token...')
+        const token = decrypt(tokenData.encrypted_token)
 
-      if (channelToken) {
-        console.log('[SEND] Got encrypted token, decrypting...')
-        const decryptedToken = decrypt(channelToken.encrypted_token)
-        console.log('[SEND] Token decrypted, creating Whapi client...')
-        const whapi = createWhapiClient(decryptedToken)
-
-        console.log('[SEND] Sending to Whapi:', { to: chat.wa_chat_id, bodyLength: text.trim().length })
-        const result = await whapi.sendText({
-          to: chat.wa_chat_id,
-          body: text.trim(),
+        console.log('[SEND] Calling Whapi API...')
+        const whapiResponse = await fetch('https://gate.whapi.cloud/messages/text', {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${token}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            to: chat.wa_chat_id,
+            body: text.trim(),
+          }),
         })
-        console.log('[SEND] Whapi response:', JSON.stringify(result))
 
-        if (result.sent && result.message) {
-          console.log('[SEND] Message sent successfully, updating database...')
-          // Update outbox as sent
+        const whapiResult = await whapiResponse.json()
+        console.log('[SEND] Whapi response:', JSON.stringify(whapiResult))
+
+        if (whapiResult.sent && whapiResult.message?.id) {
+          // Update outbox and message status
           await serviceClient
             .from('outbox_messages')
-            .update({
-              status: 'sent',
-              sent_at: new Date().toISOString(),
-              wa_message_id: result.message.id,
-            })
+            .update({ status: 'sent', sent_at: new Date().toISOString(), wa_message_id: whapiResult.message.id })
             .eq('id', outboxMessage.id)
 
-          // Update message with real WhatsApp ID
           if (message) {
             await serviceClient
               .from('messages')
-              .update({
-                wa_message_id: result.message.id,
-                status: 'sent',
-              })
+              .update({ wa_message_id: whapiResult.message.id, status: 'sent' })
               .eq('id', message.id)
           }
-          console.log('[SEND] Database updated successfully')
-        } else {
-          console.error('[SEND] Whapi returned unsuccessful:', result)
+          console.log('[SEND] Success! Message ID:', whapiResult.message.id)
         }
-      } else {
-        console.error('[SEND] No channel token found for channel:', chat.channel_id)
       }
     } catch (sendError: any) {
-      console.error('[SEND] Immediate send failed:', sendError?.message || sendError)
-      console.error('[SEND] Error stack:', sendError?.stack)
-      // Don't fail the request - message is queued and will be retried
+      console.error('[SEND] Error:', sendError?.message, sendError?.stack)
     }
 
     return NextResponse.json(
