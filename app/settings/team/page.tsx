@@ -6,13 +6,6 @@ import { createClient } from '@/lib/supabase/client'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select'
 
 interface Invite {
   id: string
@@ -265,18 +258,18 @@ export default function TeamSettingsPage() {
 
                   <div className="space-y-2">
                     <Label htmlFor="role">Role</Label>
-                    <Select value={inviteRole} onValueChange={setInviteRole}>
-                      <SelectTrigger>
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="agent">Agent</SelectItem>
-                        <SelectItem value="admin">Admin</SelectItem>
-                        {isMainAdmin && (
-                          <SelectItem value="main_admin">Main Admin</SelectItem>
-                        )}
-                      </SelectContent>
-                    </Select>
+                    <select
+                      id="role"
+                      value={inviteRole}
+                      onChange={(e) => setInviteRole(e.target.value)}
+                      className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                    >
+                      <option value="agent">Agent</option>
+                      <option value="admin">Admin</option>
+                      {isMainAdmin && (
+                        <option value="main_admin">Main Admin</option>
+                      )}
+                    </select>
                   </div>
                 </div>
 
