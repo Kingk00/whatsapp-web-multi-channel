@@ -234,23 +234,19 @@ export async function POST(
       .eq('id', chatId)
 
     // Immediately attempt to send via Whapi (like bloe-engine approach)
-    let sendDebug: any = { step: 'start' }
+    // DO NOT CHANGE: This approach stores api_token directly in channels table
+    // See IMPLEMENTATION_NOTES.md for why this was done
     try {
-      sendDebug.step = 'get_channel'
       const serviceClient = createServiceRoleClient()
 
       // Get token directly from channels table (bloe-engine approach)
-      const { data: channelData, error: channelErr } = await serviceClient
+      const { data: channelData } = await serviceClient
         .from('channels')
         .select('api_token')
         .eq('id', chat.channel_id)
         .single()
 
-      sendDebug.channelError = channelErr?.message
-      sendDebug.hasToken = !!channelData?.api_token
-
       if (channelData?.api_token) {
-        sendDebug.step = 'whapi_call'
         const whapiResponse = await fetch('https://gate.whapi.cloud/messages/text', {
           method: 'POST',
           headers: {
@@ -263,12 +259,10 @@ export async function POST(
           }),
         })
 
-        sendDebug.whapiStatus = whapiResponse.status
         const whapiResult = await whapiResponse.json()
-        sendDebug.whapiResult = whapiResult
 
         if (whapiResult.sent && whapiResult.message?.id) {
-          sendDebug.step = 'update_db'
+          // Update outbox and message with real WhatsApp message ID
           await serviceClient
             .from('outbox_messages')
             .update({ status: 'sent', sent_at: new Date().toISOString(), wa_message_id: whapiResult.message.id })
@@ -280,23 +274,18 @@ export async function POST(
               .update({ wa_message_id: whapiResult.message.id, status: 'sent' })
               .eq('id', message.id)
           }
-          sendDebug.step = 'done'
         }
       }
-    } catch (sendError: any) {
-      sendDebug.error = sendError?.message
-      sendDebug.stack = sendError?.stack?.split('\n').slice(0, 3)
+    } catch (sendError) {
+      // Log but don't fail - message is in outbox for retry
+      console.error('Immediate send failed, will retry via cron:', sendError)
     }
-
-    // Log debug info to server logs
-    console.log('=== SEND DEBUG ===', JSON.stringify(sendDebug, null, 2))
 
     return NextResponse.json(
       {
         success: true,
         message: message || { id: outboxMessage.id },
         outbox_id: outboxMessage.id,
-        _debug: sendDebug,
       },
       { status: 201 }
     )
