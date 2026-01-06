@@ -73,7 +73,6 @@ const { data: channelData } = await serviceClient
 - GitHub integration (auto-deploy on push)
 
 ### Remaining Work:
-- Team invitations and role-based access ← NEXT
 - Media message support (images, documents, etc.)
 - Cron job for outbox processing (backup mechanism)
 - UI polish and error handling
@@ -82,6 +81,12 @@ const { data: channelData } = await serviceClient
 - Real-time message updates (Supabase Realtime) - ALREADY IMPLEMENTED, SKIP THIS
 - Message sending fix (see above)
 - Debug code cleanup
+- Team invitations and role-based access - IMPLEMENTED:
+  - `invite_tokens` table created
+  - `/api/team/invites` API (GET, POST, DELETE)
+  - `/settings/team` page for admin to manage team
+  - `/invite/[token]` page for users to accept invites
+  - `/api/auth/invite` API for processing invite acceptance
 
 ### Key Identifiers:
 - Supabase Project: `mobokomuxbfqbuzwasbe`
