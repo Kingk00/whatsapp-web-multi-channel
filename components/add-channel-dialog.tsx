@@ -25,6 +25,7 @@ interface CreatedChannel {
   id: string
   name: string
   status: string
+  webhook_secret: string
 }
 
 export function AddChannelDialog({
@@ -106,6 +107,7 @@ export function AddChannelDialog({
         id: data.channel.id,
         name: data.channel.name,
         status: data.channel.status,
+        webhook_secret: data.channel.webhook_secret,
       })
       setChannelName('')
       setWhapiToken('')
@@ -255,6 +257,7 @@ export function AddChannelDialog({
       <ChannelQrDisplay
         channelId={createdChannel.id}
         channelName={createdChannel.name}
+        webhookSecret={createdChannel.webhook_secret}
         open={showQrDialog}
         onOpenChange={handleQrDialogClose}
         onConnected={handleQrConnected}

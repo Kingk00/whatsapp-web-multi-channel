@@ -82,6 +82,9 @@ export async function POST(request: NextRequest) {
     // Create channel using service role client to insert encrypted token
     const supabase = createServiceRoleClient()
 
+    // Generate webhook secret for this channel
+    const webhookSecret = crypto.randomUUID()
+
     // First, create the channel
     const { data: channel, error: channelError } = await supabase
       .from('channels')
@@ -89,8 +92,8 @@ export async function POST(request: NextRequest) {
         name,
         workspace_id: workspaceId,
         status: 'INITIALIZING',
-        health_status: 'UNKNOWN',
-        created_by: user.id,
+        health_status: { status: 'unknown' },
+        webhook_secret: webhookSecret,
       })
       .select('id, name, status, health_status, created_at, workspace_id')
       .single()
@@ -165,6 +168,7 @@ export async function POST(request: NextRequest) {
           health_status: channel.health_status,
           created_at: channel.created_at,
           workspace_id: channel.workspace_id,
+          webhook_secret: webhookSecret,
         },
       },
       { status: 201 }
