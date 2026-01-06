@@ -2,14 +2,15 @@
 
 import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
+import { ChannelStatusBadge } from '@/components/channel-status-badge'
 
 interface Channel {
   id: string
   name: string
   phone_number: string | null
-  status: 'INITIALIZING' | 'ACTIVE' | 'NEEDS_REAUTH' | 'SYNC_ERROR' | 'DEGRADED' | 'STOPPED'
+  status: 'pending_qr' | 'active' | 'needs_reauth' | 'sync_error' | 'degraded' | 'stopped'
   created_at: string
-  last_sync_at: string | null
+  last_synced_at: string | null
 }
 
 interface ChannelListProps {
@@ -33,7 +34,7 @@ export function ChannelList({ onChannelSelect }: ChannelListProps) {
     try {
       const { data, error: fetchError } = await supabase
         .from('channels')
-        .select('id, name, phone_number, status, created_at, last_sync_at')
+        .select('id, name, phone_number, status, created_at, last_synced_at')
         .order('created_at', { ascending: false })
 
       if (fetchError) {
@@ -47,28 +48,6 @@ export function ChannelList({ onChannelSelect }: ChannelListProps) {
     } finally {
       setLoading(false)
     }
-  }
-
-  const getStatusColor = (status: Channel['status']) => {
-    switch (status) {
-      case 'ACTIVE':
-        return 'bg-green-500'
-      case 'INITIALIZING':
-        return 'bg-blue-500'
-      case 'NEEDS_REAUTH':
-        return 'bg-yellow-500'
-      case 'SYNC_ERROR':
-      case 'STOPPED':
-        return 'bg-red-500'
-      case 'DEGRADED':
-        return 'bg-orange-500'
-      default:
-        return 'bg-gray-500'
-    }
-  }
-
-  const getStatusLabel = (status: Channel['status']) => {
-    return status.replace('_', ' ')
   }
 
   if (loading) {
@@ -127,14 +106,7 @@ export function ChannelList({ onChannelSelect }: ChannelListProps) {
             <div className="flex-1">
               <div className="flex items-center gap-3 mb-2">
                 <h3 className="font-semibold">{channel.name}</h3>
-                <span
-                  className={`inline-flex items-center gap-1.5 rounded-full px-2 py-1 text-xs font-medium text-white ${getStatusColor(
-                    channel.status
-                  )}`}
-                >
-                  <span className="h-1.5 w-1.5 rounded-full bg-white" />
-                  {getStatusLabel(channel.status)}
-                </span>
+                <ChannelStatusBadge status={channel.status} />
               </div>
               {channel.phone_number && (
                 <p className="text-sm text-muted-foreground">
@@ -143,10 +115,10 @@ export function ChannelList({ onChannelSelect }: ChannelListProps) {
               )}
               <p className="text-xs text-muted-foreground mt-2">
                 Added {new Date(channel.created_at).toLocaleDateString()}
-                {channel.last_sync_at && (
+                {channel.last_synced_at && (
                   <>
                     {' '}· Last sync{' '}
-                    {new Date(channel.last_sync_at).toLocaleString()}
+                    {new Date(channel.last_synced_at).toLocaleString()}
                   </>
                 )}
               </p>

@@ -84,6 +84,8 @@ CREATE TABLE channels (
   name TEXT NOT NULL,
   phone_number TEXT,  -- E.164 format
   status TEXT NOT NULL DEFAULT 'pending_qr',  -- pending_qr, active, needs_reauth, sync_error, degraded, stopped
+  health_status JSONB,  -- Health metrics from Whapi API checks
+  last_synced_at TIMESTAMPTZ,  -- Last successful health check
   color TEXT,  -- Hex color for UI
   webhook_secret TEXT NOT NULL DEFAULT gen_random_uuid()::text,
   created_at TIMESTAMPTZ DEFAULT NOW(),
@@ -94,9 +96,11 @@ CREATE INDEX channels_workspace_idx ON channels(workspace_id);
 
 -- Channel tokens: Server-only table (no RLS read access for clients)
 CREATE TABLE channel_tokens (
-  channel_id UUID PRIMARY KEY REFERENCES channels(id) ON DELETE CASCADE,
-  token_encrypted TEXT NOT NULL,  -- Encrypted with server-side key
-  created_at TIMESTAMPTZ DEFAULT NOW()
+  channel_id UUID NOT NULL REFERENCES channels(id) ON DELETE CASCADE,
+  token_type TEXT NOT NULL DEFAULT 'whapi',  -- 'whapi', 'webhook', etc.
+  encrypted_token TEXT NOT NULL,  -- Encrypted with server-side key
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  PRIMARY KEY (channel_id, token_type)
 );
 
 -- =============================================================================
