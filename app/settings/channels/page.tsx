@@ -5,12 +5,15 @@ import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import { Button } from '@/components/ui/button'
 import { ChannelList } from '@/components/channel-list'
+import { AddChannelDialog } from '@/components/add-channel-dialog'
 
 export default function ChannelSettingsPage() {
   const router = useRouter()
   const supabase = createClient()
   const [isMainAdmin, setIsMainAdmin] = useState(false)
   const [loading, setLoading] = useState(true)
+  const [showAddDialog, setShowAddDialog] = useState(false)
+  const [refreshKey, setRefreshKey] = useState(0)
 
   useEffect(() => {
     checkUserRole()
@@ -38,10 +41,15 @@ export default function ChannelSettingsPage() {
 
       setIsMainAdmin(profile?.role === 'main_admin')
     } catch (error) {
-      console.error('Error checking user role:', error)
+      // Error checking user role - redirect to login
     } finally {
       setLoading(false)
     }
+  }
+
+  const handleChannelAdded = () => {
+    // Refresh the channel list by incrementing the key
+    setRefreshKey((prev) => prev + 1)
   }
 
   if (loading) {
@@ -74,7 +82,7 @@ export default function ChannelSettingsPage() {
                 Back to Inbox
               </Button>
               {isMainAdmin && (
-                <Button>
+                <Button onClick={() => setShowAddDialog(true)}>
                   Add Channel
                 </Button>
               )}
@@ -86,9 +94,16 @@ export default function ChannelSettingsPage() {
       {/* Content */}
       <div className="container mx-auto px-4 py-8">
         <div className="max-w-4xl">
-          <ChannelList />
+          <ChannelList key={refreshKey} />
         </div>
       </div>
+
+      {/* Add Channel Dialog */}
+      <AddChannelDialog
+        open={showAddDialog}
+        onOpenChange={setShowAddDialog}
+        onSuccess={handleChannelAdded}
+      />
     </div>
   )
 }
