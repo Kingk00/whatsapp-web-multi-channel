@@ -1,0 +1,12 @@
+{
+  "crons": [
+    {
+      "path": "/api/cron/process-outbox",
+      "schedule": "* * * * *"
+    },
+    {
+      "path": "/api/cron/channel-health",
+      "schedule": "*/5 * * * *"
+    }
+  ]
+}

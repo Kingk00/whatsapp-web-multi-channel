@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createClient } from '@/lib/supabase/server'
+import { createClient, createServiceRoleClient } from '@/lib/supabase/server'
+import { decrypt } from '@/lib/encryption'
+import { createWhapiClient } from '@/lib/whapi-client'
 
 /**
  * GET /api/chats/[id]/messages
@@ -232,6 +234,55 @@ export async function POST(
         updated_at: new Date().toISOString(),
       })
       .eq('id', chatId)
+
+    // Immediately attempt to send via Whapi (don't wait for cron)
+    try {
+      const serviceClient = createServiceRoleClient()
+
+      // Get channel token
+      const { data: channelToken } = await serviceClient
+        .from('channel_tokens')
+        .select('encrypted_token')
+        .eq('channel_id', chat.channel_id)
+        .eq('token_type', 'whapi')
+        .single()
+
+      if (channelToken) {
+        const decryptedToken = decrypt(channelToken.encrypted_token)
+        const whapi = createWhapiClient(decryptedToken)
+
+        const result = await whapi.sendText({
+          to: chat.wa_chat_id,
+          body: text.trim(),
+        })
+
+        if (result.sent && result.message) {
+          // Update outbox as sent
+          await serviceClient
+            .from('outbox_messages')
+            .update({
+              status: 'sent',
+              sent_at: new Date().toISOString(),
+              wa_message_id: result.message.id,
+            })
+            .eq('id', outboxMessage.id)
+
+          // Update message with real WhatsApp ID
+          if (message) {
+            await serviceClient
+              .from('messages')
+              .update({
+                wa_message_id: result.message.id,
+                status: 'sent',
+              })
+              .eq('id', message.id)
+          }
+        }
+      }
+    } catch (sendError) {
+      console.error('Immediate send failed, will retry via cron:', sendError)
+      // Don't fail the request - message is queued and will be retried
+    }
 
     return NextResponse.json(
       {
