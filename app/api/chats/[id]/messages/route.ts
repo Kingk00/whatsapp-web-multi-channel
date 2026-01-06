@@ -237,26 +237,36 @@ export async function POST(
 
     // Immediately attempt to send via Whapi (don't wait for cron)
     try {
+      console.log('[SEND] Starting immediate send for chat:', chat.wa_chat_id)
       const serviceClient = createServiceRoleClient()
 
       // Get channel token
-      const { data: channelToken } = await serviceClient
+      const { data: channelToken, error: tokenError } = await serviceClient
         .from('channel_tokens')
         .select('encrypted_token')
         .eq('channel_id', chat.channel_id)
         .eq('token_type', 'whapi')
         .single()
 
+      if (tokenError) {
+        console.error('[SEND] Token fetch error:', tokenError)
+      }
+
       if (channelToken) {
+        console.log('[SEND] Got encrypted token, decrypting...')
         const decryptedToken = decrypt(channelToken.encrypted_token)
+        console.log('[SEND] Token decrypted, creating Whapi client...')
         const whapi = createWhapiClient(decryptedToken)
 
+        console.log('[SEND] Sending to Whapi:', { to: chat.wa_chat_id, bodyLength: text.trim().length })
         const result = await whapi.sendText({
           to: chat.wa_chat_id,
           body: text.trim(),
         })
+        console.log('[SEND] Whapi response:', JSON.stringify(result))
 
         if (result.sent && result.message) {
+          console.log('[SEND] Message sent successfully, updating database...')
           // Update outbox as sent
           await serviceClient
             .from('outbox_messages')
@@ -277,10 +287,16 @@ export async function POST(
               })
               .eq('id', message.id)
           }
+          console.log('[SEND] Database updated successfully')
+        } else {
+          console.error('[SEND] Whapi returned unsuccessful:', result)
         }
+      } else {
+        console.error('[SEND] No channel token found for channel:', chat.channel_id)
       }
-    } catch (sendError) {
-      console.error('Immediate send failed, will retry via cron:', sendError)
+    } catch (sendError: any) {
+      console.error('[SEND] Immediate send failed:', sendError?.message || sendError)
+      console.error('[SEND] Error stack:', sendError?.stack)
       // Don't fail the request - message is queued and will be retried
     }
 
