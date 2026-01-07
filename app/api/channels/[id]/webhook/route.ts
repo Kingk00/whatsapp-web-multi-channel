@@ -16,6 +16,15 @@ export async function POST(
     const { id } = await params
     console.log('[Webhook Config] Starting for channel:', id)
 
+    // Check if ENCRYPTION_KEY is set
+    if (!process.env.ENCRYPTION_KEY) {
+      console.error('[Webhook Config] ENCRYPTION_KEY not set!')
+      return NextResponse.json(
+        { error: 'Server configuration error: ENCRYPTION_KEY not set' },
+        { status: 500 }
+      )
+    }
+
     // Authenticate user and require main_admin
     console.log('[Webhook Config] Authenticating user...')
     await validateApiAuth({ requireMainAdmin: true })
