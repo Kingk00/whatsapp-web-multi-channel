@@ -58,7 +58,18 @@ export async function processWebhookEvent(
   event: WebhookEvent
 ): Promise<ProcessingResult> {
   const supabase = createServiceRoleClient()
-  const eventType = event.event || event.type || 'unknown'
+
+  // Handle Whapi format where event can be an object like {"type": "messages", "event": "post"}
+  let eventType: string = 'unknown'
+  if (typeof event.event === 'object' && event.event?.type) {
+    eventType = event.event.type
+  } else if (typeof event.event === 'string') {
+    eventType = event.event
+  } else if (event.type) {
+    eventType = event.type
+  }
+
+  console.log('[Webhook Processor] Event type:', eventType, 'Full event keys:', Object.keys(event))
 
   try {
     switch (eventType) {
