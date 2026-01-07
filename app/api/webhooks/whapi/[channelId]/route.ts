@@ -34,13 +34,21 @@ export async function POST(
   try {
     const { channelId } = await params
 
+    // Debug logging
+    console.log('[Webhook] Received POST request')
+    console.log('[Webhook] Channel ID:', channelId)
+    console.log('[Webhook] URL:', request.url)
+
     // Extract webhook secret from request
     const providedSecret = extractWebhookSecret(request)
+    console.log('[Webhook] Secret provided:', providedSecret ? 'Yes' : 'No')
 
     // Verify webhook secret
     const verification = await verifyWebhookSecret(channelId, providedSecret)
+    console.log('[Webhook] Verification result:', verification.valid ? 'Valid' : verification.error)
 
     if (!verification.valid) {
+      console.error('[Webhook] Verification failed:', verification.error)
       return NextResponse.json(
         { error: verification.error || 'Webhook verification failed' },
         { status: 401 }
@@ -51,7 +59,9 @@ export async function POST(
     let payload: any
     try {
       payload = await request.json()
+      console.log('[Webhook] Payload received:', JSON.stringify(payload).substring(0, 500))
     } catch (error) {
+      console.error('[Webhook] JSON parse error:', error)
       return NextResponse.json(
         { error: 'Invalid JSON payload' },
         { status: 400 }
