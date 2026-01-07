@@ -8,18 +8,10 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { useToast } from '@/components/ui/toast'
 
-interface Invite {
-  id: string
-  email: string
-  role: string
-  expires_at: string
-  used: boolean
-  created_at: string
-}
-
 interface TeamMember {
   user_id: string
   display_name: string
+  username: string | null
   role: string
   created_at: string
 }
@@ -28,19 +20,27 @@ export default function TeamSettingsPage() {
   const router = useRouter()
   const supabase = createClient()
   const { addToast } = useToast()
+
+  const [currentUserId, setCurrentUserId] = useState<string | null>(null)
+  const [workspaceId, setWorkspaceId] = useState<string | null>(null)
   const [isAdmin, setIsAdmin] = useState(false)
   const [isMainAdmin, setIsMainAdmin] = useState(false)
   const [loading, setLoading] = useState(true)
-  const [invites, setInvites] = useState<Invite[]>([])
   const [members, setMembers] = useState<TeamMember[]>([])
 
-  // Invite form
-  const [showInviteForm, setShowInviteForm] = useState(false)
-  const [inviteEmail, setInviteEmail] = useState('')
-  const [inviteRole, setInviteRole] = useState('agent')
-  const [inviteLoading, setInviteLoading] = useState(false)
-  const [inviteUrl, setInviteUrl] = useState<string | null>(null)
-  const [error, setError] = useState<string | null>(null)
+  // Create user form
+  const [showCreateForm, setShowCreateForm] = useState(false)
+  const [formUsername, setFormUsername] = useState('')
+  const [formDisplayName, setFormDisplayName] = useState('')
+  const [formEmail, setFormEmail] = useState('')
+  const [formPassword, setFormPassword] = useState('')
+  const [formRole, setFormRole] = useState('agent')
+  const [formLoading, setFormLoading] = useState(false)
+  const [formError, setFormError] = useState<string | null>(null)
+
+  // Delete confirmation
+  const [deletingUserId, setDeletingUserId] = useState<string | null>(null)
+  const [deleteLoading, setDeleteLoading] = useState(false)
 
   useEffect(() => {
     checkAccess()
@@ -58,6 +58,8 @@ export default function TeamSettingsPage() {
         return
       }
 
+      setCurrentUserId(user.id)
+
       const { data: profile } = await supabase
         .from('profiles')
         .select('role, workspace_id')
@@ -71,9 +73,9 @@ export default function TeamSettingsPage() {
 
       setIsAdmin(true)
       setIsMainAdmin(profile.role === 'main_admin')
+      setWorkspaceId(profile.workspace_id)
 
-      // Load team data
-      await Promise.all([fetchInvites(), fetchMembers(profile.workspace_id)])
+      await fetchMembers(profile.workspace_id)
     } catch (error) {
       console.error('Error checking access:', error)
     } finally {
@@ -81,24 +83,12 @@ export default function TeamSettingsPage() {
     }
   }
 
-  const fetchInvites = async () => {
-    try {
-      const response = await fetch('/api/team/invites')
-      if (response.ok) {
-        const data = await response.json()
-        setInvites(data.invites || [])
-      }
-    } catch (error) {
-      console.error('Error fetching invites:', error)
-    }
-  }
-
-  const fetchMembers = async (workspaceId: string) => {
+  const fetchMembers = async (wsId: string) => {
     try {
       const { data } = await supabase
         .from('profiles')
-        .select('user_id, display_name, role, created_at')
-        .eq('workspace_id', workspaceId)
+        .select('user_id, display_name, username, role, created_at')
+        .eq('workspace_id', wsId)
         .order('created_at', { ascending: true })
 
       setMembers(data || [])
@@ -107,60 +97,80 @@ export default function TeamSettingsPage() {
     }
   }
 
-  const handleCreateInvite = async (e: React.FormEvent) => {
+  const resetForm = () => {
+    setFormUsername('')
+    setFormDisplayName('')
+    setFormEmail('')
+    setFormPassword('')
+    setFormRole('agent')
+    setFormError(null)
+  }
+
+  const handleCreateUser = async (e: React.FormEvent) => {
     e.preventDefault()
-    setError(null)
-    setInviteUrl(null)
-    setInviteLoading(true)
+    setFormError(null)
+    setFormLoading(true)
 
     try {
-      const response = await fetch('/api/team/invites', {
+      const response = await fetch('/api/team/users', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email: inviteEmail, role: inviteRole }),
+        body: JSON.stringify({
+          username: formUsername,
+          displayName: formDisplayName,
+          email: formEmail,
+          password: formPassword,
+          role: formRole,
+        }),
       })
 
       const data = await response.json()
 
       if (!response.ok) {
-        setError(data.error || 'Failed to create invite')
-        addToast(data.error || 'Failed to create invite', 'error')
+        setFormError(data.error || 'Failed to create user')
+        addToast(data.error || 'Failed to create user', 'error')
         return
       }
 
-      setInviteUrl(data.inviteUrl)
-      setInviteEmail('')
-      await fetchInvites()
-      addToast('Invite created successfully', 'success')
+      addToast('User created successfully', 'success')
+      resetForm()
+      setShowCreateForm(false)
+      if (workspaceId) {
+        await fetchMembers(workspaceId)
+      }
     } catch (error) {
-      setError('Failed to create invite')
-      addToast('Failed to create invite', 'error')
+      setFormError('Failed to create user')
+      addToast('Failed to create user', 'error')
     } finally {
-      setInviteLoading(false)
+      setFormLoading(false)
     }
   }
 
-  const handleRevokeInvite = async (inviteId: string) => {
+  const handleDeleteUser = async (userId: string) => {
+    setDeleteLoading(true)
     try {
-      const response = await fetch(`/api/team/invites?id=${inviteId}`, {
+      const response = await fetch(`/api/team/users/${userId}`, {
         method: 'DELETE',
       })
 
-      if (response.ok) {
-        await fetchInvites()
-        addToast('Invite revoked', 'success')
-      } else {
-        addToast('Failed to revoke invite', 'error')
+      const data = await response.json()
+
+      if (!response.ok) {
+        addToast(data.error || 'Failed to delete user', 'error')
+        return
+      }
+
+      addToast('User deleted successfully', 'success')
+      setDeletingUserId(null)
+      if (workspaceId) {
+        await fetchMembers(workspaceId)
       }
     } catch (error) {
-      console.error('Error revoking invite:', error)
-      addToast('Failed to revoke invite', 'error')
+      console.error('Error deleting user:', error)
+      addToast('Failed to delete user', 'error')
+    } finally {
+      setDeleteLoading(false)
     }
-  }
-
-  const copyToClipboard = (text: string) => {
-    navigator.clipboard.writeText(text)
-    addToast('Copied to clipboard', 'success')
   }
 
   const formatDate = (dateString: string) => {
@@ -182,6 +192,14 @@ export default function TeamSettingsPage() {
     }
   }
 
+  const canDeleteUser = (member: TeamMember) => {
+    // Cannot delete yourself
+    if (member.user_id === currentUserId) return false
+    // Only main_admin can delete admins
+    if (['main_admin', 'admin'].includes(member.role) && !isMainAdmin) return false
+    return true
+  }
+
   if (loading) {
     return (
       <div className="flex min-h-screen items-center justify-center">
@@ -195,73 +213,87 @@ export default function TeamSettingsPage() {
   }
 
   return (
-    <div className="min-h-screen bg-background">
+    <div className="flex-1">
       {/* Header */}
-      <header className="border-b bg-card px-6 py-4">
+      <header className="border-b bg-white px-8 py-6">
         <div className="flex items-center justify-between">
           <div>
-            <h1 className="text-2xl font-bold">Team Management</h1>
-            <p className="text-sm text-muted-foreground">
-              Invite and manage team members
-            </p>
+            <h1 className="text-2xl font-semibold text-gray-900">Team Management</h1>
+            <p className="text-sm text-gray-500">Create and manage team members</p>
           </div>
-          <Button variant="outline" onClick={() => router.push('/inbox')}>
-            Back to Inbox
-          </Button>
+          {!showCreateForm && (
+            <Button onClick={() => setShowCreateForm(true)}>+ Add User</Button>
+          )}
         </div>
       </header>
 
-      <main className="container mx-auto max-w-4xl px-6 py-8">
-        {/* Invite Section */}
-        <section className="mb-8">
-          <div className="flex items-center justify-between mb-4">
-            <h2 className="text-lg font-semibold">Invite New Member</h2>
-            {!showInviteForm && (
-              <Button onClick={() => setShowInviteForm(true)}>
-                + New Invite
-              </Button>
-            )}
-          </div>
-
-          {showInviteForm && (
+      <main className="max-w-4xl p-8">
+        {/* Create User Form */}
+        {showCreateForm && (
+          <section className="mb-8">
             <div className="rounded-lg border bg-card p-6">
-              <form onSubmit={handleCreateInvite} className="space-y-4">
-                {error && (
+              <h3 className="text-lg font-semibold mb-4">Create New User</h3>
+              <form onSubmit={handleCreateUser} className="space-y-4">
+                {formError && (
                   <div className="rounded-md bg-destructive/10 p-3 text-sm text-destructive">
-                    {error}
-                  </div>
-                )}
-
-                {inviteUrl && (
-                  <div className="rounded-md bg-green-50 p-4">
-                    <p className="text-sm font-medium text-green-800 mb-2">
-                      Invite created! Share this link:
-                    </p>
-                    <div className="flex items-center gap-2">
-                      <code className="flex-1 rounded bg-white p-2 text-xs break-all">
-                        {inviteUrl}
-                      </code>
-                      <Button
-                        type="button"
-                        size="sm"
-                        variant="outline"
-                        onClick={() => copyToClipboard(inviteUrl)}
-                      >
-                        Copy
-                      </Button>
-                    </div>
+                    {formError}
                   </div>
                 )}
 
                 <div className="grid gap-4 md:grid-cols-2">
                   <div className="space-y-2">
-                    <Label htmlFor="email">Email Address</Label>
+                    <Label htmlFor="username">Username *</Label>
+                    <div className="relative">
+                      <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground">
+                        @
+                      </span>
+                      <Input
+                        id="username"
+                        type="text"
+                        placeholder="johndoe"
+                        value={formUsername}
+                        onChange={(e) =>
+                          setFormUsername(e.target.value.toLowerCase().replace(/[^a-z0-9_]/g, ''))
+                        }
+                        className="pl-8"
+                        required
+                      />
+                    </div>
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label htmlFor="displayName">Display Name *</Label>
+                    <Input
+                      id="displayName"
+                      type="text"
+                      placeholder="John Doe"
+                      value={formDisplayName}
+                      onChange={(e) => setFormDisplayName(e.target.value)}
+                      required
+                    />
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label htmlFor="email">Email *</Label>
                     <Input
                       id="email"
                       type="email"
-                      placeholder="colleague@example.com"
-                      value={inviteEmail}
-                      onChange={(e) => setInviteEmail(e.target.value)}
+                      placeholder="john@example.com"
+                      value={formEmail}
+                      onChange={(e) => setFormEmail(e.target.value)}
+                      required
+                    />
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label htmlFor="password">Password *</Label>
+                    <Input
+                      id="password"
+                      type="password"
+                      placeholder="Min 8 characters"
+                      value={formPassword}
+                      onChange={(e) => setFormPassword(e.target.value)}
+                      minLength={8}
                       required
                     />
                   </div>
@@ -270,30 +302,27 @@ export default function TeamSettingsPage() {
                     <Label htmlFor="role">Role</Label>
                     <select
                       id="role"
-                      value={inviteRole}
-                      onChange={(e) => setInviteRole(e.target.value)}
+                      value={formRole}
+                      onChange={(e) => setFormRole(e.target.value)}
                       className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
                     >
                       <option value="agent">Agent</option>
                       <option value="admin">Admin</option>
-                      {isMainAdmin && (
-                        <option value="main_admin">Main Admin</option>
-                      )}
+                      {isMainAdmin && <option value="main_admin">Main Admin</option>}
                     </select>
                   </div>
                 </div>
 
-                <div className="flex gap-2">
-                  <Button type="submit" disabled={inviteLoading}>
-                    {inviteLoading ? 'Creating...' : 'Create Invite'}
+                <div className="flex gap-2 pt-2">
+                  <Button type="submit" disabled={formLoading}>
+                    {formLoading ? 'Creating...' : 'Create User'}
                   </Button>
                   <Button
                     type="button"
                     variant="outline"
                     onClick={() => {
-                      setShowInviteForm(false)
-                      setInviteUrl(null)
-                      setError(null)
+                      setShowCreateForm(false)
+                      resetForm()
                     }}
                   >
                     Cancel
@@ -301,90 +330,34 @@ export default function TeamSettingsPage() {
                 </div>
               </form>
             </div>
-          )}
-        </section>
-
-        {/* Pending Invites */}
-        <section className="mb-8">
-          <h2 className="text-lg font-semibold mb-4">Pending Invites</h2>
-          {invites.filter((i) => !i.used).length === 0 ? (
-            <p className="text-muted-foreground text-sm">No pending invites</p>
-          ) : (
-            <div className="rounded-lg border bg-card overflow-hidden">
-              <table className="w-full">
-                <thead className="bg-muted/50">
-                  <tr>
-                    <th className="px-4 py-3 text-left text-sm font-medium">
-                      Email
-                    </th>
-                    <th className="px-4 py-3 text-left text-sm font-medium">
-                      Role
-                    </th>
-                    <th className="px-4 py-3 text-left text-sm font-medium">
-                      Expires
-                    </th>
-                    <th className="px-4 py-3 text-right text-sm font-medium">
-                      Actions
-                    </th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y">
-                  {invites
-                    .filter((i) => !i.used)
-                    .map((invite) => (
-                      <tr key={invite.id}>
-                        <td className="px-4 py-3 text-sm">{invite.email}</td>
-                        <td className="px-4 py-3">
-                          <span
-                            className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium ${getRoleBadgeClass(invite.role)}`}
-                          >
-                            {invite.role.replace('_', ' ')}
-                          </span>
-                        </td>
-                        <td className="px-4 py-3 text-sm text-muted-foreground">
-                          {formatDate(invite.expires_at)}
-                        </td>
-                        <td className="px-4 py-3 text-right">
-                          <Button
-                            size="sm"
-                            variant="ghost"
-                            className="text-destructive"
-                            onClick={() => handleRevokeInvite(invite.id)}
-                          >
-                            Revoke
-                          </Button>
-                        </td>
-                      </tr>
-                    ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </section>
+          </section>
+        )}
 
         {/* Team Members */}
         <section>
-          <h2 className="text-lg font-semibold mb-4">Team Members</h2>
+          <h2 className="text-lg font-semibold mb-4">Team Members ({members.length})</h2>
           <div className="rounded-lg border bg-card overflow-hidden">
             <table className="w-full">
               <thead className="bg-muted/50">
                 <tr>
-                  <th className="px-4 py-3 text-left text-sm font-medium">
-                    Name
-                  </th>
-                  <th className="px-4 py-3 text-left text-sm font-medium">
-                    Role
-                  </th>
-                  <th className="px-4 py-3 text-left text-sm font-medium">
-                    Joined
-                  </th>
+                  <th className="px-4 py-3 text-left text-sm font-medium">Username</th>
+                  <th className="px-4 py-3 text-left text-sm font-medium">Display Name</th>
+                  <th className="px-4 py-3 text-left text-sm font-medium">Role</th>
+                  <th className="px-4 py-3 text-left text-sm font-medium">Joined</th>
+                  <th className="px-4 py-3 text-right text-sm font-medium">Actions</th>
                 </tr>
               </thead>
               <tbody className="divide-y">
                 {members.map((member) => (
                   <tr key={member.user_id}>
                     <td className="px-4 py-3 text-sm font-medium">
+                      @{member.username || member.display_name?.toLowerCase().replace(/\s+/g, '') || 'unnamed'}
+                    </td>
+                    <td className="px-4 py-3 text-sm text-muted-foreground">
                       {member.display_name || 'Unnamed'}
+                      {member.user_id === currentUserId && (
+                        <span className="ml-2 text-xs text-muted-foreground">(you)</span>
+                      )}
                     </td>
                     <td className="px-4 py-3">
                       <span
@@ -395,6 +368,42 @@ export default function TeamSettingsPage() {
                     </td>
                     <td className="px-4 py-3 text-sm text-muted-foreground">
                       {formatDate(member.created_at)}
+                    </td>
+                    <td className="px-4 py-3 text-right">
+                      {canDeleteUser(member) && (
+                        <>
+                          {deletingUserId === member.user_id ? (
+                            <div className="flex items-center justify-end gap-2">
+                              <span className="text-sm text-muted-foreground">Delete?</span>
+                              <Button
+                                size="sm"
+                                variant="destructive"
+                                onClick={() => handleDeleteUser(member.user_id)}
+                                disabled={deleteLoading}
+                              >
+                                {deleteLoading ? '...' : 'Yes'}
+                              </Button>
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                onClick={() => setDeletingUserId(null)}
+                                disabled={deleteLoading}
+                              >
+                                No
+                              </Button>
+                            </div>
+                          ) : (
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              className="text-destructive hover:text-destructive"
+                              onClick={() => setDeletingUserId(member.user_id)}
+                            >
+                              Delete
+                            </Button>
+                          )}
+                        </>
+                      )}
                     </td>
                   </tr>
                 ))}

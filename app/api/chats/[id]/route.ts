@@ -12,11 +12,11 @@ import { createClient, createServiceRoleClient } from '@/lib/supabase/server'
  */
 export async function PATCH(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const { id: chatId } = await params
     const supabase = await createClient()
-    const chatId = params.id
 
     // Check authentication
     const {
@@ -137,12 +137,12 @@ const WHAPI_BATCH_DELAY_MS = 200 // Delay between batches
 
 export async function DELETE(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const { id: chatId } = await params
     const supabase = await createClient()
     const serviceClient = createServiceRoleClient()
-    const chatId = params.id
 
     // Check authentication
     const {
@@ -292,15 +292,15 @@ export async function DELETE(
 /**
  * GET /api/chats/[id]
  *
- * Get a single chat by ID
+ * Get a single chat by ID with optional contact info
  */
 export async function GET(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const { id: chatId } = await params
     const supabase = await createClient()
-    const chatId = params.id
 
     // Check authentication
     const {
@@ -348,6 +348,24 @@ export async function GET(
       return NextResponse.json({ error: 'Chat not found' }, { status: 404 })
     }
 
+    // Fetch linked contact if exists
+    let contact = null
+    if (chat.contact_id) {
+      const { data: contactData } = await supabase
+        .from('contacts')
+        .select('id, display_name, phone_numbers, email_addresses, tags')
+        .eq('id', chat.contact_id)
+        .single()
+
+      contact = contactData
+    }
+
+    // Get message count
+    const { count: messageCount } = await supabase
+      .from('messages')
+      .select('*', { count: 'exact', head: true })
+      .eq('chat_id', chatId)
+
     // Check if muted
     const isMuted = chat.muted_until
       ? new Date(chat.muted_until) > new Date()
@@ -355,6 +373,8 @@ export async function GET(
 
     return NextResponse.json({
       ...chat,
+      contact,
+      message_count: messageCount || 0,
       is_muted: isMuted,
     })
   } catch (error) {

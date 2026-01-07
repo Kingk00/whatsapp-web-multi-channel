@@ -63,36 +63,28 @@ export default function ChannelSettingsPage() {
   }
 
   return (
-    <div className="min-h-screen bg-background">
+    <div className="flex-1">
       {/* Header */}
-      <div className="border-b">
-        <div className="container mx-auto px-4 py-6">
+      <div className="border-b bg-white">
+        <div className="px-8 py-6">
           <div className="flex items-center justify-between">
             <div>
-              <h1 className="text-3xl font-bold tracking-tight">Channels</h1>
-              <p className="mt-1 text-sm text-muted-foreground">
+              <h1 className="text-2xl font-semibold text-gray-900">Channels</h1>
+              <p className="mt-1 text-sm text-gray-500">
                 Manage your WhatsApp Business channels
               </p>
             </div>
-            <div className="flex items-center gap-3">
-              <Button
-                variant="outline"
-                onClick={() => router.push('/inbox')}
-              >
-                Back to Inbox
+            {isMainAdmin && (
+              <Button onClick={() => setShowAddDialog(true)}>
+                Add Channel
               </Button>
-              {isMainAdmin && (
-                <Button onClick={() => setShowAddDialog(true)}>
-                  Add Channel
-                </Button>
-              )}
-            </div>
+            )}
           </div>
         </div>
       </div>
 
       {/* Content */}
-      <div className="container mx-auto px-4 py-8">
+      <div className="p-8">
         <div className="max-w-4xl">
           <ChannelList key={refreshKey} />
         </div>

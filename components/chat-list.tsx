@@ -13,7 +13,7 @@
  * - Archived chats section
  */
 
-import { useState } from 'react'
+import React, { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useUIStore } from '@/store/ui-store'
 import { queryKeys } from '@/lib/query-client'
@@ -369,7 +369,10 @@ function ChatListItem({
   onUnmute,
   onDelete,
 }: ChatListItemProps) {
-  const [isHovered, setIsHovered] = useState(false)
+  const [showMenu, setShowMenu] = useState(false)
+  const [menuOpen, setMenuOpen] = useState(false)
+  const itemRef = React.useRef<HTMLDivElement>(null)
+
   // Use getDisplayName for proper priority: contact name > phone > WA name
   const displayName = getDisplayName(chat)
   const initials = getInitials(displayName)
@@ -377,14 +380,35 @@ function ChatListItem({
     ? formatDistanceToNow(new Date(chat.last_message_at))
     : ''
 
+  // Track mouse position to show menu only on right side hover
+  const handleMouseMove = (e: React.MouseEvent) => {
+    if (menuOpen) return // Keep showing if menu is open
+
+    const rect = itemRef.current?.getBoundingClientRect()
+    if (!rect) return
+
+    const mouseX = e.clientX - rect.left
+    const rightEdgeThreshold = 60 // px from right edge
+
+    // Show menu when hovering on the right side
+    setShowMenu(mouseX > rect.width - rightEdgeThreshold)
+  }
+
+  const handleMouseLeave = () => {
+    if (!menuOpen) {
+      setShowMenu(false)
+    }
+  }
+
   return (
     <div
+      ref={itemRef}
       className={cn(
         'group relative flex w-full items-start gap-3 px-4 py-3 text-left transition-colors hover:bg-gray-50',
         isSelected && 'bg-gray-100'
       )}
-      onMouseEnter={() => setIsHovered(true)}
-      onMouseLeave={() => setIsHovered(false)}
+      onMouseMove={handleMouseMove}
+      onMouseLeave={handleMouseLeave}
     >
       {/* Main clickable area */}
       <button onClick={onSelect} className="flex flex-1 items-start gap-3">
@@ -493,11 +517,11 @@ function ChatListItem({
         </div>
       </button>
 
-      {/* Hover menu */}
+      {/* Hover menu - only shows on right side hover */}
       <div
         className={cn(
-          'absolute right-2 top-1/2 -translate-y-1/2 transition-opacity',
-          isHovered || isSelected ? 'opacity-100' : 'opacity-0'
+          'absolute right-3 top-1/2 -translate-y-1/2 transition-opacity duration-150',
+          showMenu || menuOpen ? 'opacity-100' : 'opacity-0 pointer-events-none'
         )}
       >
         <ChatListItemMenu
@@ -508,6 +532,7 @@ function ChatListItem({
           onMute={onMute}
           onUnmute={onUnmute}
           onDelete={onDelete}
+          onOpenChange={setMenuOpen}
         />
       </div>
     </div>

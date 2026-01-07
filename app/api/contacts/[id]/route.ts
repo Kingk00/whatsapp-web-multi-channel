@@ -9,11 +9,11 @@ import { createHash } from 'crypto'
  */
 export async function GET(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const { id: contactId } = await params
     const supabase = await createClient()
-    const contactId = params.id
 
     // Check authentication
     const {
@@ -59,11 +59,11 @@ export async function GET(
  */
 export async function PATCH(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const { id: contactId } = await params
     const supabase = await createClient()
-    const contactId = params.id
 
     // Check authentication
     const {
@@ -172,11 +172,11 @@ export async function PATCH(
  */
 export async function DELETE(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const { id: contactId } = await params
     const supabase = await createClient()
-    const contactId = params.id
 
     // Check authentication
     const {
@@ -199,15 +199,15 @@ export async function DELETE(
       return NextResponse.json({ error: 'Contact not found' }, { status: 404 })
     }
 
-    // Verify user is admin
-    const { data: membership } = await supabase
-      .from('workspace_members')
+    // Verify user is admin (main_admin or admin)
+    const { data: profile } = await supabase
+      .from('profiles')
       .select('role')
       .eq('workspace_id', contact.workspace_id)
       .eq('user_id', user.id)
       .single()
 
-    if (!membership || membership.role !== 'admin') {
+    if (!profile || !['main_admin', 'admin'].includes(profile.role)) {
       return NextResponse.json(
         { error: 'Only admins can delete contacts' },
         { status: 403 }

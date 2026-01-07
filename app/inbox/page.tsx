@@ -20,6 +20,7 @@ import { ChatList } from '@/components/chat-list'
 import { ChatView } from '@/components/chat-view'
 import { ChannelSelector } from '@/components/channel-selector'
 import { ConnectionBanner } from '@/components/connection-banner'
+import { ContactInfoPanel } from '@/components/contact-info-panel'
 import { cn } from '@/lib/utils'
 
 export default function InboxPage() {
@@ -199,12 +200,10 @@ export default function InboxPage() {
 
         {/* Right sidebar - Details panel (optional) */}
         {detailsPanelOpen && selectedChatId && (
-          <aside className="hidden w-80 border-l border-gray-200 bg-white lg:block">
-            {/* Contact details will go here */}
-            <div className="flex h-16 items-center border-b border-gray-200 px-4">
-              <h2 className="font-semibold">Contact Info</h2>
-            </div>
-          </aside>
+          <ContactInfoPanel
+            chatId={selectedChatId}
+            onClose={toggleDetailsPanel}
+          />
         )}
       </div>
     </div>

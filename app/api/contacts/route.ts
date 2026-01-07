@@ -28,14 +28,14 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
 
-    // Get user's workspace
-    const { data: membership } = await supabase
-      .from('workspace_members')
+    // Get user's workspace from profiles
+    const { data: profile } = await supabase
+      .from('profiles')
       .select('workspace_id')
       .eq('user_id', user.id)
       .single()
 
-    if (!membership) {
+    if (!profile) {
       return NextResponse.json({ error: 'No workspace found' }, { status: 404 })
     }
 
@@ -50,7 +50,7 @@ export async function GET(request: NextRequest) {
     let query = supabase
       .from('contacts')
       .select('*', { count: 'exact' })
-      .eq('workspace_id', membership.workspace_id)
+      .eq('workspace_id', profile.workspace_id)
       .order('display_name', { ascending: true })
 
     // Apply search filter
@@ -116,14 +116,14 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
 
-    // Get user's workspace
-    const { data: membership } = await supabase
-      .from('workspace_members')
+    // Get user's workspace from profiles
+    const { data: profile } = await supabase
+      .from('profiles')
       .select('workspace_id')
       .eq('user_id', user.id)
       .single()
 
-    if (!membership) {
+    if (!profile) {
       return NextResponse.json({ error: 'No workspace found' }, { status: 404 })
     }
 
@@ -148,7 +148,7 @@ export async function POST(request: NextRequest) {
     const { data: contact, error: createError } = await supabase
       .from('contacts')
       .insert({
-        workspace_id: membership.workspace_id,
+        workspace_id: profile.workspace_id,
         display_name: display_name.trim(),
         phone_numbers: normalizedPhones,
         email_addresses: email_addresses || [],
