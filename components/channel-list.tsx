@@ -14,6 +14,7 @@ interface Channel {
   status: 'pending_qr' | 'active' | 'needs_reauth' | 'sync_error' | 'degraded' | 'stopped'
   created_at: string
   last_synced_at: string | null
+  webhook_secret: string | null
 }
 
 interface ChannelListProps {
@@ -27,6 +28,7 @@ export function ChannelList({ onChannelSelect }: ChannelListProps) {
   const [editingId, setEditingId] = useState<string | null>(null)
   const [editName, setEditName] = useState('')
   const [saving, setSaving] = useState(false)
+  const [copiedId, setCopiedId] = useState<string | null>(null)
   const inputRef = useRef<HTMLInputElement>(null)
   const supabase = createClient()
   const { addToast } = useToast()
@@ -49,7 +51,7 @@ export function ChannelList({ onChannelSelect }: ChannelListProps) {
     try {
       const { data, error: fetchError } = await supabase
         .from('channels')
-        .select('id, name, phone_number, status, created_at, last_synced_at')
+        .select('id, name, phone_number, status, created_at, last_synced_at, webhook_secret')
         .order('created_at', { ascending: false })
 
       if (fetchError) {
@@ -115,6 +117,18 @@ export function ChannelList({ onChannelSelect }: ChannelListProps) {
     } else if (e.key === 'Escape') {
       cancelEditing()
     }
+  }
+
+  const copyWebhookUrl = async (channel: Channel) => {
+    if (!channel.webhook_secret) {
+      addToast('Webhook secret not available', 'error')
+      return
+    }
+    const webhookUrl = `${window.location.origin}/api/webhooks/whapi/${channel.id}?secret=${channel.webhook_secret}`
+    await navigator.clipboard.writeText(webhookUrl)
+    setCopiedId(channel.id)
+    addToast('Webhook URL copied! Configure this in Whapi.cloud', 'success')
+    setTimeout(() => setCopiedId(null), 2000)
   }
 
   if (loading) {
@@ -224,6 +238,42 @@ export function ChannelList({ onChannelSelect }: ChannelListProps) {
                   </>
                 )}
               </p>
+              {/* Webhook URL - always visible */}
+              {channel.webhook_secret && (
+                <div className="mt-3 p-2 rounded bg-muted/50 border">
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs font-medium text-muted-foreground">Webhook URL:</span>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        copyWebhookUrl(channel)
+                      }}
+                      className="h-6 text-xs"
+                    >
+                      {copiedId === channel.id ? (
+                        <>
+                          <svg className="h-3 w-3 mr-1 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                          </svg>
+                          Copied!
+                        </>
+                      ) : (
+                        <>
+                          <svg className="h-3 w-3 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                          </svg>
+                          Copy URL
+                        </>
+                      )}
+                    </Button>
+                  </div>
+                  <p className="text-xs text-orange-600 mt-1">
+                    Configure this URL in Whapi.cloud → Channel Settings → Webhook URL
+                  </p>
+                </div>
+              )}
             </div>
             {editingId !== channel.id && (
               <Button
