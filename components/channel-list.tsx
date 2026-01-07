@@ -144,7 +144,11 @@ export function ChannelList({ onChannelSelect }: ChannelListProps) {
       const data = await response.json()
 
       if (!response.ok) {
-        throw new Error(data.error || 'Failed to configure webhook')
+        // Show detailed error message
+        const errorMsg = data.details
+          ? `${data.error}: ${data.details}`
+          : data.error || 'Failed to configure webhook'
+        throw new Error(errorMsg)
       }
 
       addToast('Webhook configured successfully in Whapi.cloud!', 'success')
