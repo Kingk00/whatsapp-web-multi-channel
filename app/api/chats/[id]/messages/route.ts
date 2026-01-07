@@ -234,6 +234,10 @@ export async function POST(
       })
       .eq('id', chatId)
 
+    // Track final status for response
+    let finalStatus = 'pending'
+    let finalWaMessageId = message?.wa_message_id
+
     // Immediately attempt to send via Whapi
     try {
       const serviceClient = createServiceRoleClient()
@@ -274,6 +278,9 @@ export async function POST(
 
         if (isSent && waMessageId) {
           console.log('[Send Message] Message sent successfully, wa_message_id:', waMessageId)
+          finalStatus = 'sent'
+          finalWaMessageId = waMessageId
+
           // Update outbox and message with real WhatsApp message ID
           await serviceClient
             .from('outbox_messages')
@@ -288,6 +295,8 @@ export async function POST(
           }
         } else {
           console.error('[Send Message] Whapi send failed:', whapiResult)
+          finalStatus = 'failed'
+
           // Update status to failed
           if (message) {
             await serviceClient
@@ -304,10 +313,15 @@ export async function POST(
       console.error('[Send Message] Immediate send failed:', sendError)
     }
 
+    // Return message with final status
+    const responseMessage = message
+      ? { ...message, status: finalStatus, wa_message_id: finalWaMessageId }
+      : { id: outboxMessage.id, status: finalStatus }
+
     return NextResponse.json(
       {
         success: true,
-        message: message || { id: outboxMessage.id },
+        message: responseMessage,
         outbox_id: outboxMessage.id,
       },
       { status: 201 }

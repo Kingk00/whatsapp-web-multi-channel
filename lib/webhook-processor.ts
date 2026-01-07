@@ -208,7 +208,8 @@ async function processSingleMessage(
     const textContent = extractTextContent(messageData)
 
     // Extract media info if present - handle various Whapi formats
-    const mediaInfo = extractMediaInfo(messageData, messageType)
+    // Also fetch from Whapi if link not present but media ID is
+    const mediaInfo = await extractMediaInfoWithFetch(supabase, channel.id, messageData, messageType)
     const mediaUrl = mediaInfo?.url || null
     const mediaMetadata = mediaInfo?.metadata || null
 
@@ -786,6 +787,116 @@ function extractTextContent(messageData: any): string | null {
     messageData.document?.caption ||
     null
   )
+}
+
+/**
+ * Extract media information from message data with Whapi API fallback
+ * If link is not present but media ID is, fetches from Whapi
+ */
+async function extractMediaInfoWithFetch(
+  supabase: SupabaseClient,
+  channelId: string,
+  messageData: any,
+  messageType: string
+): Promise<{ url: string; metadata: Record<string, any> } | null> {
+  // First try direct extraction
+  const directMedia = extractMediaInfo(messageData, messageType)
+  if (directMedia?.url) {
+    console.log('[Webhook Processor] Media URL found directly:', directMedia.url.slice(0, 100))
+    return directMedia
+  }
+
+  // If no direct URL, check for media ID and fetch from Whapi
+  const mediaObject =
+    messageData.image ||
+    messageData.video ||
+    messageData.audio ||
+    messageData.voice ||
+    messageData.ptt ||
+    messageData.document ||
+    messageData.sticker
+
+  const mediaId = mediaObject?.id
+  if (!mediaId) {
+    console.log('[Webhook Processor] No media ID found, cannot fetch')
+    return null
+  }
+
+  console.log('[Webhook Processor] Media ID found, fetching from Whapi:', mediaId)
+
+  try {
+    // Import decrypt function
+    const { decrypt } = await import('@/lib/encryption')
+
+    // Get the Whapi token for this channel
+    const { data: tokenData } = await supabase
+      .from('channel_tokens')
+      .select('encrypted_token')
+      .eq('channel_id', channelId)
+      .eq('token_type', 'whapi')
+      .single()
+
+    if (!tokenData?.encrypted_token) {
+      console.log('[Webhook Processor] No token found for media fetch')
+      return null
+    }
+
+    const whapiToken = decrypt(tokenData.encrypted_token)
+
+    // Fetch media URL from Whapi
+    // According to Whapi docs, use GET /media/{mediaId} to get the media URL
+    const response = await fetch(`https://gate.whapi.cloud/media/${mediaId}`, {
+      method: 'GET',
+      headers: {
+        'Authorization': `Bearer ${whapiToken}`,
+        'Content-Type': 'application/json',
+      },
+    })
+
+    if (!response.ok) {
+      console.error('[Webhook Processor] Failed to fetch media from Whapi:', response.status)
+      // Try alternative endpoint: /media/{mediaId}/download
+      const downloadResponse = await fetch(`https://gate.whapi.cloud/media/${mediaId}/download`, {
+        method: 'GET',
+        headers: {
+          'Authorization': `Bearer ${whapiToken}`,
+        },
+      })
+
+      if (downloadResponse.ok) {
+        // This endpoint returns the actual file, get the URL from headers or construct it
+        const contentType = downloadResponse.headers.get('content-type')
+        // For direct download, we need to save the file or use a different approach
+        // For now, let's try the link endpoint
+        console.log('[Webhook Processor] Download endpoint returned content-type:', contentType)
+      }
+      return null
+    }
+
+    const mediaData = await response.json()
+    console.log('[Webhook Processor] Whapi media response:', JSON.stringify(mediaData).slice(0, 500))
+
+    if (mediaData.link || mediaData.url) {
+      return {
+        url: mediaData.link || mediaData.url,
+        metadata: {
+          mime_type: mediaData.mime_type || mediaObject?.mime_type,
+          size: mediaData.file_size || mediaObject?.file_size,
+          filename: mediaData.filename || mediaObject?.filename,
+          width: mediaData.width || mediaObject?.width,
+          height: mediaData.height || mediaObject?.height,
+          duration: mediaData.seconds || mediaData.duration || mediaObject?.seconds,
+          id: mediaId,
+        },
+      }
+    }
+
+    console.log('[Webhook Processor] No link in Whapi media response')
+    return null
+  } catch (error) {
+    console.error('[Webhook Processor] Error fetching media from Whapi:', error)
+    return null
+  }
 }
 
 /**
