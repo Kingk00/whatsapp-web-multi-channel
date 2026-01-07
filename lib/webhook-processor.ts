@@ -592,7 +592,7 @@ async function processChannelStatusEvent(
 
 /**
  * Update channel phone number if not already set
- * Extracts the channel's WhatsApp number from message data
+ * Extracts the channel's WhatsApp number from message data or fetches from Whapi API
  */
 async function updateChannelPhoneIfNeeded(
   supabase: SupabaseClient,
@@ -613,19 +613,27 @@ async function updateChannelPhoneIfNeeded(
       return
     }
 
-    // Extract channel's WhatsApp ID
-    // For inbound messages (from_me=false): 'to' is the channel's number
-    // For outbound messages (from_me=true): 'from' is the channel's number
+    console.log('[Webhook Processor] Channel missing phone, attempting to extract. messageData keys:', Object.keys(messageData))
+    console.log('[Webhook Processor] from:', messageData.from, 'to:', messageData.to, 'chat_id:', messageData.chat_id)
+
+    // Extract channel's WhatsApp ID from various possible locations
     let channelWaId: string | null = null
 
+    // Method 1: Direct to/from fields
     if (!fromMe && messageData.to) {
       channelWaId = messageData.to
     } else if (fromMe && messageData.from) {
       channelWaId = messageData.from
     }
 
+    // Method 2: If no direct field, try to get from Whapi settings API
     if (!channelWaId) {
-      console.log('[Webhook Processor] Could not extract channel phone number')
+      console.log('[Webhook Processor] No to/from field, trying Whapi settings API')
+      channelWaId = await fetchChannelPhoneFromWhapi(supabase, channel.id)
+    }
+
+    if (!channelWaId) {
+      console.log('[Webhook Processor] Could not extract channel phone number from any source')
       return
     }
 
@@ -654,6 +662,57 @@ async function updateChannelPhoneIfNeeded(
     }
   } catch (error) {
     console.error('[Webhook Processor] Error updating channel phone:', error)
+  }
+}
+
+/**
+ * Fetch channel phone number from Whapi settings API
+ */
+async function fetchChannelPhoneFromWhapi(
+  supabase: SupabaseClient,
+  channelId: string
+): Promise<string | null> {
+  try {
+    // Import decrypt function
+    const { decrypt } = await import('@/lib/encryption')
+
+    // Get the Whapi token for this channel
+    const { data: tokenData } = await supabase
+      .from('channel_tokens')
+      .select('encrypted_token')
+      .eq('channel_id', channelId)
+      .eq('token_type', 'whapi')
+      .single()
+
+    if (!tokenData?.encrypted_token) {
+      console.log('[Webhook Processor] No token found for channel')
+      return null
+    }
+
+    const whapiToken = decrypt(tokenData.encrypted_token)
+
+    // Fetch settings from Whapi
+    const response = await fetch('https://gate.whapi.cloud/settings', {
+      method: 'GET',
+      headers: {
+        'Authorization': `Bearer ${whapiToken}`,
+        'Content-Type': 'application/json',
+      },
+    })
+
+    if (!response.ok) {
+      console.error('[Webhook Processor] Failed to fetch Whapi settings:', response.status)
+      return null
+    }
+
+    const settings = await response.json()
+    console.log('[Webhook Processor] Whapi settings wid:', settings.wid)
+
+    // wid is in format "1234567890@s.whatsapp.net"
+    return settings.wid || null
+  } catch (error) {
+    console.error('[Webhook Processor] Error fetching Whapi settings:', error)
+    return null
   }
 }
 

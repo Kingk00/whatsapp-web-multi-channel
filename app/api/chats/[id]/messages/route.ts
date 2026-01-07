@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient, createServiceRoleClient } from '@/lib/supabase/server'
+import { decrypt } from '@/lib/encryption'
 
 /**
  * GET /api/chats/[id]/messages
@@ -12,11 +13,11 @@ import { createClient, createServiceRoleClient } from '@/lib/supabase/server'
  */
 export async function GET(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
     const supabase = await createClient()
-    const chatId = params.id
+    const { id: chatId } = await params
 
     // Check authentication
     const {
@@ -122,11 +123,11 @@ export async function GET(
  */
 export async function POST(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
     const supabase = await createClient()
-    const chatId = params.id
+    const { id: chatId } = await params
 
     // Check authentication
     const {
@@ -233,24 +234,28 @@ export async function POST(
       })
       .eq('id', chatId)
 
-    // Immediately attempt to send via Whapi (like bloe-engine approach)
-    // DO NOT CHANGE: This approach stores api_token directly in channels table
-    // See IMPLEMENTATION_NOTES.md for why this was done
+    // Immediately attempt to send via Whapi
     try {
       const serviceClient = createServiceRoleClient()
 
-      // Get token directly from channels table (bloe-engine approach)
-      const { data: channelData } = await serviceClient
-        .from('channels')
-        .select('api_token')
-        .eq('id', chat.channel_id)
+      // Get encrypted token from channel_tokens table
+      const { data: tokenData } = await serviceClient
+        .from('channel_tokens')
+        .select('encrypted_token')
+        .eq('channel_id', chat.channel_id)
+        .eq('token_type', 'whapi')
         .single()
 
-      if (channelData?.api_token) {
+      if (tokenData?.encrypted_token) {
+        // Decrypt the token
+        const whapiToken = decrypt(tokenData.encrypted_token)
+
+        console.log('[Send Message] Sending to:', chat.wa_chat_id)
+
         const whapiResponse = await fetch('https://gate.whapi.cloud/messages/text', {
           method: 'POST',
           headers: {
-            'Authorization': `Bearer ${channelData.api_token}`,
+            'Authorization': `Bearer ${whapiToken}`,
             'Content-Type': 'application/json',
           },
           body: JSON.stringify({
@@ -260,6 +265,7 @@ export async function POST(
         })
 
         const whapiResult = await whapiResponse.json()
+        console.log('[Send Message] Whapi response:', JSON.stringify(whapiResult))
 
         if (whapiResult.sent && whapiResult.message?.id) {
           // Update outbox and message with real WhatsApp message ID
@@ -274,11 +280,15 @@ export async function POST(
               .update({ wa_message_id: whapiResult.message.id, status: 'sent' })
               .eq('id', message.id)
           }
+        } else {
+          console.error('[Send Message] Whapi send failed:', whapiResult)
         }
+      } else {
+        console.error('[Send Message] No token found for channel:', chat.channel_id)
       }
     } catch (sendError) {
       // Log but don't fail - message is in outbox for retry
-      console.error('Immediate send failed, will retry via cron:', sendError)
+      console.error('[Send Message] Immediate send failed:', sendError)
     }
 
     return NextResponse.json(
