@@ -46,15 +46,26 @@ export interface MessageData {
     id?: string
     name?: string
     pushname?: string
+    profile_photo?: string
+    thumbnail?: string
   }
   pushname?: string
   notifyName?: string
+  // Profile photo from various Whapi formats
+  profile_photo?: string
+  thumbnail?: string
+  contact?: {
+    profile_photo?: string
+    thumbnail?: string
+  }
   chat?: {
     id?: string
     name?: string
     is_group?: boolean
     isGroup?: boolean
     participants?: any[]
+    profile_photo?: string
+    thumbnail?: string
   }
   // Group-specific
   isGroup?: boolean
@@ -63,6 +74,8 @@ export interface MessageData {
     id?: string
     name?: string
     participants?: any[]
+    profile_photo?: string
+    thumbnail?: string
   }
 }
 
@@ -260,6 +273,9 @@ function extractContactInfo(
   // Check if this is a group chat
   const isGroup = isGroupChat(waChatId, messageData)
 
+  // Extract profile photo from various possible locations
+  const profilePhoto = extractProfilePhoto(messageData, isGroup)
+
   if (isGroup) {
     // Group chat
     const groupInfo = messageData.group || messageData.chat
@@ -271,7 +287,7 @@ function extractContactInfo(
         extractGroupName(waChatId) ||
         'Unknown Group',
       phoneNumber: null,
-      profilePhotoUrl: null,
+      profilePhotoUrl: profilePhoto,
       groupParticipants: groupInfo?.participants || messageData.chat?.participants || null,
     }
   }
@@ -287,9 +303,37 @@ function extractContactInfo(
     isGroup: false,
     displayName: senderName || formatPhoneNumber(waChatId),
     phoneNumber: extractPhoneNumber(waChatId),
-    profilePhotoUrl: null,
+    profilePhotoUrl: profilePhoto,
     groupParticipants: null,
   }
+}
+
+/**
+ * Extract profile photo URL from message data
+ */
+function extractProfilePhoto(messageData: MessageData, isGroup: boolean): string | null {
+  // Try various locations where Whapi might include the profile photo
+  if (isGroup) {
+    // Group photos
+    return (
+      messageData.group?.profile_photo ||
+      messageData.group?.thumbnail ||
+      messageData.chat?.profile_photo ||
+      messageData.chat?.thumbnail ||
+      null
+    )
+  }
+
+  // Individual contact photos
+  return (
+    messageData.sender?.profile_photo ||
+    messageData.sender?.thumbnail ||
+    messageData.profile_photo ||
+    messageData.thumbnail ||
+    messageData.contact?.profile_photo ||
+    messageData.contact?.thumbnail ||
+    null
+  )
 }
 
 /**
@@ -364,6 +408,14 @@ async function updateChatContactInfo(
   // Update display name if we have a better one
   if (senderName && (!chat.display_name || chat.display_name.startsWith('+'))) {
     updates.display_name = senderName
+  }
+
+  // Update profile photo if we have one and chat doesn't
+  if (!chat.profile_photo_url) {
+    const profilePhoto = extractProfilePhoto(messageData, chat.is_group)
+    if (profilePhoto) {
+      updates.profile_photo_url = profilePhoto
+    }
   }
 
   // Update group participants if available

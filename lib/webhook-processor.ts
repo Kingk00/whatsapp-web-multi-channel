@@ -191,18 +191,10 @@ async function processSingleMessage(
     // Extract text content
     const textContent = extractTextContent(messageData)
 
-    // Extract media info if present
-    const mediaUrl = messageData.media?.url || messageData.mediaUrl || null
-    const mediaMetadata = messageData.media
-      ? {
-          mime_type: messageData.media.mime_type || messageData.media.mimetype,
-          size: messageData.media.size || messageData.media.filesize,
-          filename: messageData.media.filename,
-          width: messageData.media.width,
-          height: messageData.media.height,
-          duration: messageData.media.duration,
-        }
-      : null
+    // Extract media info if present - handle various Whapi formats
+    const mediaInfo = extractMediaInfo(messageData, messageType)
+    const mediaUrl = mediaInfo?.url || null
+    const mediaMetadata = mediaInfo?.metadata || null
 
     // Extract sender info
     const senderWaId = messageData.from || messageData.sender?.id
@@ -629,8 +621,107 @@ function extractTextContent(messageData: any): string | null {
     messageData.text ||
     messageData.body ||
     messageData.caption ||
+    // Also check for caption in media objects
+    messageData.image?.caption ||
+    messageData.video?.caption ||
+    messageData.document?.caption ||
     null
   )
+}
+
+/**
+ * Extract media information from message data
+ * Handles various Whapi formats for images, videos, audio, documents
+ */
+function extractMediaInfo(
+  messageData: any,
+  messageType: string
+): { url: string; metadata: Record<string, any> } | null {
+  // First check for generic media object
+  if (messageData.media?.url || messageData.media?.link) {
+    return {
+      url: messageData.media.url || messageData.media.link,
+      metadata: {
+        mime_type: messageData.media.mime_type || messageData.media.mimetype,
+        size: messageData.media.size || messageData.media.filesize,
+        filename: messageData.media.filename,
+        width: messageData.media.width,
+        height: messageData.media.height,
+        duration: messageData.media.duration,
+      },
+    }
+  }
+
+  // Check for mediaUrl directly
+  if (messageData.mediaUrl) {
+    return {
+      url: messageData.mediaUrl,
+      metadata: {
+        mime_type: messageData.mime_type || messageData.mimetype,
+      },
+    }
+  }
+
+  // Check type-specific media objects (Whapi format)
+  const mediaObject =
+    messageData.image ||
+    messageData.video ||
+    messageData.audio ||
+    messageData.voice ||
+    messageData.ptt ||
+    messageData.document ||
+    messageData.sticker
+
+  if (mediaObject) {
+    // Whapi can send URL in various fields
+    const url =
+      mediaObject.link ||
+      mediaObject.url ||
+      mediaObject.media_url ||
+      mediaObject.file_url
+
+    if (url) {
+      return {
+        url,
+        metadata: {
+          mime_type: mediaObject.mime_type || mediaObject.mimetype,
+          size: mediaObject.size || mediaObject.filesize || mediaObject.file_size,
+          filename: mediaObject.filename || mediaObject.file_name,
+          width: mediaObject.width,
+          height: mediaObject.height,
+          duration: mediaObject.duration || mediaObject.seconds,
+          id: mediaObject.id,
+        },
+      }
+    }
+  }
+
+  // For view-once messages, the media might be in a nested structure
+  if (messageData.is_view_once || messageData.viewOnce) {
+    const viewOnceMedia =
+      messageData.viewOnceMessage?.image ||
+      messageData.viewOnceMessage?.video ||
+      messageData.ephemeral?.image ||
+      messageData.ephemeral?.video
+
+    if (viewOnceMedia) {
+      const url = viewOnceMedia.link || viewOnceMedia.url
+      if (url) {
+        return {
+          url,
+          metadata: {
+            mime_type: viewOnceMedia.mime_type || viewOnceMedia.mimetype,
+            size: viewOnceMedia.size,
+            width: viewOnceMedia.width,
+            height: viewOnceMedia.height,
+            is_view_once: true,
+          },
+        }
+      }
+    }
+  }
+
+  return null
 }
 
 /**

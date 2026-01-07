@@ -5,13 +5,19 @@
  *
  * Provides authentication state and user profile information
  * with automatic refresh and caching via React Query.
+ *
+ * Features:
+ * - Auto sign-out after 15 minutes of inactivity
  */
 
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useRouter } from 'next/navigation'
-import { useEffect, useCallback } from 'react'
+import { useEffect, useCallback, useRef } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { queryKeys } from '@/lib/query-client'
+
+// Inactivity timeout in milliseconds (15 minutes)
+const INACTIVITY_TIMEOUT = 15 * 60 * 1000
 
 // ============================================================================
 // Types
@@ -134,6 +140,53 @@ export function useAuth(): AuthState & {
     refetchUser()
     refetchProfile()
   }, [refetchUser, refetchProfile])
+
+  // Inactivity timeout - auto sign-out after 15 minutes
+  const timeoutRef = useRef<NodeJS.Timeout | null>(null)
+
+  const resetInactivityTimer = useCallback(() => {
+    // Clear existing timeout
+    if (timeoutRef.current) {
+      clearTimeout(timeoutRef.current)
+    }
+
+    // Only set timeout if authenticated
+    if (userData) {
+      timeoutRef.current = setTimeout(() => {
+        console.log('User inactive for 15 minutes, signing out...')
+        signOut()
+      }, INACTIVITY_TIMEOUT)
+    }
+  }, [userData, signOut])
+
+  // Set up activity listeners for inactivity detection
+  useEffect(() => {
+    if (!userData) return
+
+    const activityEvents = ['mousedown', 'keydown', 'touchstart', 'mousemove', 'scroll']
+
+    const handleActivity = () => {
+      resetInactivityTimer()
+    }
+
+    // Add event listeners
+    activityEvents.forEach((event) => {
+      window.addEventListener(event, handleActivity, { passive: true })
+    })
+
+    // Start the timer
+    resetInactivityTimer()
+
+    // Cleanup
+    return () => {
+      activityEvents.forEach((event) => {
+        window.removeEventListener(event, handleActivity)
+      })
+      if (timeoutRef.current) {
+        clearTimeout(timeoutRef.current)
+      }
+    }
+  }, [userData, resetInactivityTimer])
 
   const isLoading = userLoading || profileLoading
   const isAuthenticated = !!userData && !!profile

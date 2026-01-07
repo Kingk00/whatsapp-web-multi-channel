@@ -52,13 +52,25 @@ interface Chat {
   } | null
 }
 
+type ChatFilter = 'all' | 'unread' | 'groups'
+
 interface ChatListProps {
   channelId: string | null
   searchQuery?: string
+  filter?: ChatFilter
+  onSelectChat?: (chatId: string | null, channelId?: string) => void
 }
 
-export function ChatList({ channelId, searchQuery = '' }: ChatListProps) {
+export function ChatList({
+  channelId,
+  searchQuery = '',
+  filter = 'all',
+  onSelectChat,
+}: ChatListProps) {
   const { selectedChatId, selectChat } = useUIStore()
+
+  // Use custom handler or default
+  const handleSelectChat = onSelectChat || selectChat
   const [showArchived, setShowArchived] = useState(false)
   const queryClient = useQueryClient()
   const { addToast } = useToast()
@@ -161,26 +173,39 @@ export function ChatList({ channelId, searchQuery = '' }: ChatListProps) {
   const allChats: Chat[] = data?.chats || []
   const archivedChats: Chat[] = archivedData?.chats || []
 
-  // Filter chats based on search query
+  // Filter chats based on search query and filter type
   const filterChats = (chats: Chat[]) => {
-    if (!searchQuery.trim()) return chats
-    const query = searchQuery.toLowerCase()
-    return chats.filter((chat) => {
-      // Use getDisplayName for consistent name matching
-      const name = getDisplayName(chat).toLowerCase()
-      const phone = (chat.phone_number || '').toLowerCase()
-      const preview = (chat.last_message_preview || '').toLowerCase()
-      const channelName = (chat.channel?.name || '').toLowerCase()
-      // Also search in contact name if linked
-      const contactName = (chat.contact?.display_name || '').toLowerCase()
-      return (
-        name.includes(query) ||
-        phone.includes(query) ||
-        preview.includes(query) ||
-        channelName.includes(query) ||
-        contactName.includes(query)
-      )
-    })
+    let filtered = chats
+
+    // Apply filter type (unread/groups)
+    if (filter === 'unread') {
+      filtered = filtered.filter((chat) => chat.unread_count > 0)
+    } else if (filter === 'groups') {
+      filtered = filtered.filter((chat) => chat.is_group)
+    }
+
+    // Apply search query
+    if (searchQuery.trim()) {
+      const query = searchQuery.toLowerCase()
+      filtered = filtered.filter((chat) => {
+        // Use getDisplayName for consistent name matching
+        const name = getDisplayName(chat).toLowerCase()
+        const phone = (chat.phone_number || '').toLowerCase()
+        const preview = (chat.last_message_preview || '').toLowerCase()
+        const channelName = (chat.channel?.name || '').toLowerCase()
+        // Also search in contact name if linked
+        const contactName = (chat.contact?.display_name || '').toLowerCase()
+        return (
+          name.includes(query) ||
+          phone.includes(query) ||
+          preview.includes(query) ||
+          channelName.includes(query) ||
+          contactName.includes(query)
+        )
+      })
+    }
+
+    return filtered
   }
 
   const chats = filterChats(allChats)
@@ -282,7 +307,7 @@ export function ChatList({ channelId, searchQuery = '' }: ChatListProps) {
           chat={chat}
           isSelected={selectedChatId === chat.id}
           showChannelBadge={!channelId}
-          onSelect={() => selectChat(chat.id, chat.channel_id)}
+          onSelect={() => handleSelectChat(chat.id, chat.channel_id)}
           onArchive={() => archiveMutation.mutate({ chatId: chat.id, archive: !chat.is_archived })}
           onMute={(duration) => muteMutation.mutate({ chatId: chat.id, duration })}
           onUnmute={() => muteMutation.mutate({ chatId: chat.id })}
@@ -333,7 +358,7 @@ export function ChatList({ channelId, searchQuery = '' }: ChatListProps) {
                   chat={chat}
                   isSelected={selectedChatId === chat.id}
                   showChannelBadge={!channelId}
-                  onSelect={() => selectChat(chat.id, chat.channel_id)}
+                  onSelect={() => handleSelectChat(chat.id, chat.channel_id)}
                   onArchive={() => archiveMutation.mutate({ chatId: chat.id, archive: false })}
                   onMute={(duration) => muteMutation.mutate({ chatId: chat.id, duration })}
                   onUnmute={() => muteMutation.mutate({ chatId: chat.id })}

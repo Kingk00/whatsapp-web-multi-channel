@@ -22,11 +22,17 @@ import { ChannelSelector } from '@/components/channel-selector'
 import { ConnectionBanner } from '@/components/connection-banner'
 import { ContactInfoPanel } from '@/components/contact-info-panel'
 import { cn } from '@/lib/utils'
+import { useQueryClient } from '@tanstack/react-query'
+import { queryKeys } from '@/lib/query-client'
+
+type ChatFilter = 'all' | 'unread' | 'groups'
 
 export default function InboxPage() {
   const { isLoading, isAuthenticated, profile, signOut } = useRequireAuth()
   const [searchQuery, setSearchQuery] = useState('')
+  const [chatFilter, setChatFilter] = useState<ChatFilter>('all')
   const searchInputRef = useRef<HTMLInputElement>(null)
+  const queryClient = useQueryClient()
   const {
     selectedChatId,
     selectedChannelId,
@@ -58,6 +64,22 @@ export default function InboxPage() {
     { key: '/', action: focusSearch, description: 'Focus search' },
     { key: 'Escape', action: handleEscape, description: 'Close panel / Clear' },
   ])
+
+  // Handle chat selection with unread count clearing
+  const handleSelectChat = useCallback(async (chatId: string | null, channelId?: string) => {
+    selectChat(chatId, channelId)
+
+    // Clear unread count when selecting a chat
+    if (chatId) {
+      try {
+        await fetch(`/api/chats/${chatId}/read`, { method: 'POST' })
+        // Invalidate chats to refresh unread counts
+        queryClient.invalidateQueries({ queryKey: queryKeys.chats.all })
+      } catch (error) {
+        console.error('Failed to mark chat as read:', error)
+      }
+    }
+  }, [selectChat, queryClient])
 
   // Update max panes based on screen width
   useEffect(() => {
@@ -115,7 +137,7 @@ export default function InboxPage() {
             <ChannelSelector />
 
             {/* User menu */}
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-1">
               <button
                 onClick={() => window.location.href = '/settings/channels'}
                 className="rounded-full p-2 text-gray-500 hover:bg-gray-100"
@@ -139,6 +161,26 @@ export default function InboxPage() {
                     strokeLinejoin="round"
                     strokeWidth={2}
                     d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"
+                  />
+                </svg>
+              </button>
+              <button
+                onClick={signOut}
+                className="rounded-full p-2 text-gray-500 hover:bg-gray-100 hover:text-red-500"
+                title="Logout"
+              >
+                <svg
+                  xmlns="http://www.w3.org/2000/svg"
+                  className="h-5 w-5"
+                  fill="none"
+                  viewBox="0 0 24 24"
+                  stroke="currentColor"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"
                   />
                 </svg>
               </button>
@@ -181,11 +223,53 @@ export default function InboxPage() {
                 </button>
               )}
             </div>
+
+            {/* Filter bubbles */}
+            <div className="mt-2 flex gap-2">
+              <button
+                onClick={() => setChatFilter('all')}
+                className={cn(
+                  'rounded-full px-3 py-1 text-sm font-medium transition-colors',
+                  chatFilter === 'all'
+                    ? 'bg-green-500 text-white'
+                    : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                )}
+              >
+                All
+              </button>
+              <button
+                onClick={() => setChatFilter('unread')}
+                className={cn(
+                  'rounded-full px-3 py-1 text-sm font-medium transition-colors',
+                  chatFilter === 'unread'
+                    ? 'bg-green-500 text-white'
+                    : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                )}
+              >
+                Unread
+              </button>
+              <button
+                onClick={() => setChatFilter('groups')}
+                className={cn(
+                  'rounded-full px-3 py-1 text-sm font-medium transition-colors',
+                  chatFilter === 'groups'
+                    ? 'bg-green-500 text-white'
+                    : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                )}
+              >
+                Groups
+              </button>
+            </div>
           </div>
 
           {/* Chat list */}
           <div className="flex-1 overflow-y-auto">
-            <ChatList channelId={selectedChannelId} searchQuery={searchQuery} />
+            <ChatList
+              channelId={selectedChannelId}
+              searchQuery={searchQuery}
+              filter={chatFilter}
+              onSelectChat={handleSelectChat}
+            />
           </div>
         </aside>
 
