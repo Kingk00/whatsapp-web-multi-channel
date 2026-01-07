@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useRef, useEffect } from 'react'
+import { useState, useRef, useEffect, Suspense } from 'react'
 import { useSearchParams } from 'next/navigation'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { cn } from '@/lib/utils'
@@ -19,6 +19,30 @@ interface Contact {
 }
 
 export default function ContactsSettingsPage() {
+  return (
+    <Suspense fallback={<ContactsLoadingFallback />}>
+      <ContactsSettingsContent />
+    </Suspense>
+  )
+}
+
+function ContactsLoadingFallback() {
+  return (
+    <div className="flex-1">
+      <div className="border-b bg-white">
+        <div className="px-8 py-6">
+          <h1 className="text-2xl font-semibold text-gray-900">Contacts</h1>
+          <p className="text-sm text-gray-500">Loading...</p>
+        </div>
+      </div>
+      <div className="flex items-center justify-center py-12">
+        <div className="h-8 w-8 animate-spin rounded-full border-2 border-green-500 border-t-transparent" />
+      </div>
+    </div>
+  )
+}
+
+function ContactsSettingsContent() {
   const searchParams = useSearchParams()
   const [search, setSearch] = useState('')
   const [sourceFilter, setSourceFilter] = useState<string>('')
