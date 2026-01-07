@@ -3,7 +3,7 @@ import { createServiceRoleClient } from '@/lib/supabase/server'
 
 /**
  * POST /api/auth/lookup-email
- * Look up a user's email by username for login
+ * Look up a user's email by username (display_name) for login
  * This is public but only returns email if username exists
  */
 export async function POST(request: NextRequest) {
@@ -19,11 +19,11 @@ export async function POST(request: NextRequest) {
 
     const supabase = createServiceRoleClient()
 
-    // Look up user_id from profiles table
+    // Look up user_id from profiles table by display_name (case-insensitive)
     const { data: profile, error: profileError } = await supabase
       .from('profiles')
       .select('user_id')
-      .eq('username', username.toLowerCase())
+      .ilike('display_name', username)
       .single()
 
     if (profileError || !profile) {
