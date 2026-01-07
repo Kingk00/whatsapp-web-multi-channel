@@ -12,9 +12,10 @@
  * Layout follows WhatsApp Web design patterns.
  */
 
-import { useEffect } from 'react'
+import { useEffect, useState, useRef, useCallback } from 'react'
 import { useRequireAuth } from '@/hooks/use-auth'
 import { useUIStore } from '@/store/ui-store'
+import { useKeyboardShortcuts } from '@/hooks/use-keyboard-shortcuts'
 import { ChatList } from '@/components/chat-list'
 import { ChatView } from '@/components/chat-view'
 import { ChannelSelector } from '@/components/channel-selector'
@@ -23,6 +24,8 @@ import { cn } from '@/lib/utils'
 
 export default function InboxPage() {
   const { isLoading, isAuthenticated, profile, signOut } = useRequireAuth()
+  const [searchQuery, setSearchQuery] = useState('')
+  const searchInputRef = useRef<HTMLInputElement>(null)
   const {
     selectedChatId,
     selectedChannelId,
@@ -30,7 +33,30 @@ export default function InboxPage() {
     detailsPanelOpen,
     isOnline,
     isReconnecting,
+    toggleDetailsPanel,
+    selectChat,
   } = useUIStore()
+
+  // Keyboard shortcuts
+  const focusSearch = useCallback(() => {
+    searchInputRef.current?.focus()
+  }, [])
+
+  const handleEscape = useCallback(() => {
+    if (searchQuery) {
+      setSearchQuery('')
+    } else if (detailsPanelOpen) {
+      toggleDetailsPanel()
+    } else if (selectedChatId) {
+      selectChat(null)
+    }
+  }, [searchQuery, detailsPanelOpen, selectedChatId, toggleDetailsPanel, selectChat])
+
+  useKeyboardShortcuts([
+    { key: 'k', ctrl: true, action: focusSearch, description: 'Focus search' },
+    { key: '/', action: focusSearch, description: 'Focus search' },
+    { key: 'Escape', action: handleEscape, description: 'Close panel / Clear' },
+  ])
 
   // Update max panes based on screen width
   useEffect(() => {
@@ -122,9 +148,12 @@ export default function InboxPage() {
           <div className="border-b border-gray-200 p-2">
             <div className="relative">
               <input
+                ref={searchInputRef}
                 type="text"
-                placeholder="Search or start new chat"
-                className="w-full rounded-lg bg-gray-100 py-2 pl-10 pr-4 text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
+                placeholder="Search chats... (Ctrl+K)"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="w-full rounded-lg bg-gray-100 py-2 pl-10 pr-10 text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
               />
               <svg
                 xmlns="http://www.w3.org/2000/svg"
@@ -140,12 +169,22 @@ export default function InboxPage() {
                   d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"
                 />
               </svg>
+              {searchQuery && (
+                <button
+                  onClick={() => setSearchQuery('')}
+                  className="absolute right-3 top-2.5 text-gray-400 hover:text-gray-600"
+                >
+                  <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                  </svg>
+                </button>
+              )}
             </div>
           </div>
 
           {/* Chat list */}
           <div className="flex-1 overflow-y-auto">
-            <ChatList channelId={selectedChannelId} />
+            <ChatList channelId={selectedChannelId} searchQuery={searchQuery} />
           </div>
         </aside>
 

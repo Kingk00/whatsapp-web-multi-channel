@@ -9,6 +9,7 @@ import { createClient } from '@/lib/supabase/server'
  *
  * Query params:
  * - channel_id: Filter to specific channel (optional)
+ * - archived: 'only' | 'include' | 'exclude' (default: 'exclude')
  * - limit: Max chats to return (default 50)
  * - cursor: Last chat's last_message_at for pagination
  */
@@ -29,10 +30,11 @@ export async function GET(request: NextRequest) {
     // Parse query params
     const { searchParams } = new URL(request.url)
     const channelId = searchParams.get('channel_id')
+    const archived = searchParams.get('archived') || 'exclude' // 'only' | 'include' | 'exclude'
     const limit = parseInt(searchParams.get('limit') || '50', 10)
     const cursor = searchParams.get('cursor')
 
-    // Build query
+    // Build query - include contact info for display name priority
     let query = supabase
       .from('chats')
       .select(
@@ -43,12 +45,15 @@ export async function GET(request: NextRequest) {
         wa_chat_id,
         is_group,
         display_name,
+        wa_display_name,
         phone_number,
         profile_photo_url,
         last_message_at,
         last_message_preview,
         unread_count,
         is_archived,
+        muted_until,
+        contact_id,
         created_at,
         updated_at,
         channels!inner (
@@ -56,10 +61,23 @@ export async function GET(request: NextRequest) {
           name,
           color,
           status
+        ),
+        contacts (
+          id,
+          display_name
         )
       `
       )
-      .eq('is_archived', false)
+
+    // Apply archived filter
+    if (archived === 'only') {
+      query = query.eq('is_archived', true)
+    } else if (archived === 'exclude') {
+      query = query.eq('is_archived', false)
+    }
+    // 'include' = no filter, return all
+
+    query = query
       .order('last_message_at', { ascending: false, nullsFirst: false })
       .limit(limit)
 
@@ -83,11 +101,15 @@ export async function GET(request: NextRequest) {
       )
     }
 
-    // Transform the response to flatten channel data
+    // Transform the response to flatten channel/contact data and add computed fields
     const transformedChats = (chats || []).map((chat: any) => ({
       ...chat,
       channel: chat.channels,
       channels: undefined,
+      contact: chat.contacts || null,
+      contacts: undefined,
+      // Computed: is the chat currently muted?
+      is_muted: chat.muted_until ? new Date(chat.muted_until) > new Date() : false,
     }))
 
     return NextResponse.json({

@@ -6,6 +6,7 @@ import { createClient } from '@/lib/supabase/client'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { useToast } from '@/components/ui/toast'
 
 interface Invite {
   id: string
@@ -26,6 +27,7 @@ interface TeamMember {
 export default function TeamSettingsPage() {
   const router = useRouter()
   const supabase = createClient()
+  const { addToast } = useToast()
   const [isAdmin, setIsAdmin] = useState(false)
   const [isMainAdmin, setIsMainAdmin] = useState(false)
   const [loading, setLoading] = useState(true)
@@ -122,14 +124,17 @@ export default function TeamSettingsPage() {
 
       if (!response.ok) {
         setError(data.error || 'Failed to create invite')
+        addToast(data.error || 'Failed to create invite', 'error')
         return
       }
 
       setInviteUrl(data.inviteUrl)
       setInviteEmail('')
       await fetchInvites()
+      addToast('Invite created successfully', 'success')
     } catch (error) {
       setError('Failed to create invite')
+      addToast('Failed to create invite', 'error')
     } finally {
       setInviteLoading(false)
     }
@@ -143,14 +148,19 @@ export default function TeamSettingsPage() {
 
       if (response.ok) {
         await fetchInvites()
+        addToast('Invite revoked', 'success')
+      } else {
+        addToast('Failed to revoke invite', 'error')
       }
     } catch (error) {
       console.error('Error revoking invite:', error)
+      addToast('Failed to revoke invite', 'error')
     }
   }
 
   const copyToClipboard = (text: string) => {
     navigator.clipboard.writeText(text)
+    addToast('Copied to clipboard', 'success')
   }
 
   const formatDate = (dateString: string) => {

@@ -389,3 +389,99 @@ function truncateText(text: string, maxLength: number): string {
   if (text.length <= maxLength) return text
   return text.substring(0, maxLength - 3) + '...'
 }
+
+// ============================================================================
+// Display Name Priority Functions
+// ============================================================================
+
+interface ContactInfo {
+  display_name: string
+}
+
+interface ChatWithContact {
+  display_name?: string | null
+  wa_display_name?: string | null
+  phone_number?: string | null
+  contact?: ContactInfo | null
+}
+
+/**
+ * Get the display name for a chat based on priority:
+ * 1. Linked contact name
+ * 2. Phone number (formatted)
+ * 3. WhatsApp display name (fallback)
+ *
+ * This implements the user's requirement that saved contact names
+ * should be shown instead of WhatsApp names.
+ */
+export function getDisplayName(chat: ChatWithContact): string {
+  // Priority 1: Linked contact name
+  if (chat.contact?.display_name) {
+    return chat.contact.display_name
+  }
+
+  // Priority 2: Phone number (formatted nicely)
+  if (chat.phone_number) {
+    return formatPhoneForDisplay(chat.phone_number)
+  }
+
+  // Priority 3: WhatsApp display name
+  if (chat.wa_display_name) {
+    return chat.wa_display_name
+  }
+
+  // Fallback: original display_name or Unknown
+  return chat.display_name || 'Unknown'
+}
+
+/**
+ * Format a phone number for display
+ * Handles various formats and tries to make them readable
+ */
+export function formatPhoneForDisplay(phone: string): string {
+  if (!phone) return ''
+
+  // Remove any non-digit except leading +
+  const cleaned = phone.replace(/[^\d+]/g, '')
+
+  // If it starts with +1 (US/Canada), format as (XXX) XXX-XXXX
+  if (cleaned.startsWith('+1') && cleaned.length === 12) {
+    const areaCode = cleaned.slice(2, 5)
+    const firstPart = cleaned.slice(5, 8)
+    const lastPart = cleaned.slice(8, 12)
+    return `+1 (${areaCode}) ${firstPart}-${lastPart}`
+  }
+
+  // If it starts with +, format with spaces
+  if (cleaned.startsWith('+') && cleaned.length > 5) {
+    const countryCode = cleaned.slice(0, cleaned.length > 12 ? 3 : 2)
+    const rest = cleaned.slice(countryCode.length)
+    // Add space every 3-4 digits
+    const formatted = rest.replace(/(\d{3,4})(?=\d)/g, '$1 ')
+    return `${countryCode} ${formatted}`
+  }
+
+  // Return as-is if we can't format
+  return phone
+}
+
+/**
+ * Get a short version of the phone number (for compact displays)
+ */
+export function getShortPhoneNumber(phone: string): string {
+  if (!phone) return ''
+  const cleaned = phone.replace(/[^\d+]/g, '')
+  // Show last 4 digits with ellipsis
+  if (cleaned.length > 4) {
+    return `...${cleaned.slice(-4)}`
+  }
+  return cleaned
+}
+
+/**
+ * Check if two phone numbers match (normalized comparison)
+ */
+export function phoneNumbersMatch(phone1: string, phone2: string): boolean {
+  const normalize = (p: string) => p.replace(/[^\d]/g, '')
+  return normalize(phone1) === normalize(phone2)
+}

@@ -4,6 +4,12 @@ const ALGORITHM = 'aes-256-gcm'
 const IV_LENGTH = 16
 const AUTH_TAG_LENGTH = 16
 const SALT_LENGTH = 64
+const DEK_LENGTH = 32 // 256 bits for AES-256
+
+// In-memory cache for decrypted DEKs (cleared on process restart)
+// Key: workspaceId, Value: { dek: Buffer, version: number, expiresAt: number }
+const dekCache = new Map<string, { dek: Buffer; version: number; expiresAt: number }>()
+const DEK_CACHE_TTL_MS = 5 * 60 * 1000 // 5 minutes
 
 /**
  * Encrypt sensitive data (e.g., Whapi tokens) using AES-256-GCM
@@ -111,4 +117,219 @@ export function hash(text: string): string {
  */
 export function generateToken(length: number = 32): string {
   return crypto.randomBytes(length).toString('hex')
+}
+
+// =============================================================================
+// Workspace DEK (Data Encryption Key) Functions
+// =============================================================================
+
+/**
+ * Generate a new Data Encryption Key for a workspace
+ * @returns Encrypted DEK ready to store in database
+ */
+export function generateWorkspaceDEK(): string {
+  // Generate a random 256-bit key
+  const dek = crypto.randomBytes(DEK_LENGTH)
+
+  // Encrypt the DEK with the master key
+  return encrypt(dek.toString('base64'))
+}
+
+/**
+ * Decrypt a workspace's DEK
+ * @param encryptedDek - The encrypted DEK from database
+ * @returns Decrypted DEK as Buffer
+ */
+function decryptDEK(encryptedDek: string): Buffer {
+  const dekBase64 = decrypt(encryptedDek)
+  return Buffer.from(dekBase64, 'base64')
+}
+
+/**
+ * Get workspace DEK, using cache if available
+ * @param workspaceId - The workspace UUID
+ * @param encryptedDek - The encrypted DEK from database
+ * @param keyVersion - The key version for cache validation
+ * @returns Decrypted DEK as Buffer
+ */
+function getWorkspaceDEK(
+  workspaceId: string,
+  encryptedDek: string,
+  keyVersion: number
+): Buffer {
+  const cached = dekCache.get(workspaceId)
+  const now = Date.now()
+
+  // Return cached DEK if valid
+  if (cached && cached.version === keyVersion && cached.expiresAt > now) {
+    return cached.dek
+  }
+
+  // Decrypt and cache
+  const dek = decryptDEK(encryptedDek)
+  dekCache.set(workspaceId, {
+    dek,
+    version: keyVersion,
+    expiresAt: now + DEK_CACHE_TTL_MS,
+  })
+
+  return dek
+}
+
+/**
+ * Clear cached DEK for a workspace (use after key rotation)
+ */
+export function clearDEKCache(workspaceId?: string): void {
+  if (workspaceId) {
+    dekCache.delete(workspaceId)
+  } else {
+    dekCache.clear()
+  }
+}
+
+/**
+ * Encrypt data using a workspace's DEK
+ * Uses AES-256-GCM for authenticated encryption
+ *
+ * @param workspaceId - The workspace UUID
+ * @param encryptedDek - The encrypted DEK from database
+ * @param keyVersion - The key version
+ * @param plaintext - Data to encrypt
+ * @returns Encrypted string in format: v{version}:iv:authTag:ciphertext
+ */
+export function encryptWithWorkspaceDEK(
+  workspaceId: string,
+  encryptedDek: string,
+  keyVersion: number,
+  plaintext: string
+): string {
+  if (!plaintext) return ''
+
+  const dek = getWorkspaceDEK(workspaceId, encryptedDek, keyVersion)
+  const iv = crypto.randomBytes(IV_LENGTH)
+
+  const cipher = crypto.createCipheriv(ALGORITHM, dek, iv)
+  let encrypted = cipher.update(plaintext, 'utf8', 'hex')
+  encrypted += cipher.final('hex')
+
+  const authTag = cipher.getAuthTag()
+
+  // Include version for future key rotation
+  return [
+    `v${keyVersion}`,
+    iv.toString('hex'),
+    authTag.toString('hex'),
+    encrypted,
+  ].join(':')
+}
+
+/**
+ * Decrypt data using a workspace's DEK
+ *
+ * @param workspaceId - The workspace UUID
+ * @param encryptedDek - The encrypted DEK from database
+ * @param keyVersion - Current key version (for cache)
+ * @param ciphertext - Encrypted string from encryptWithWorkspaceDEK
+ * @returns Decrypted plaintext
+ */
+export function decryptWithWorkspaceDEK(
+  workspaceId: string,
+  encryptedDek: string,
+  keyVersion: number,
+  ciphertext: string
+): string {
+  if (!ciphertext) return ''
+
+  const parts = ciphertext.split(':')
+  if (parts.length !== 4) {
+    throw new Error('Invalid encrypted data format')
+  }
+
+  const [versionStr, ivHex, authTagHex, encryptedData] = parts
+
+  // Extract version number
+  const dataVersion = parseInt(versionStr.replace('v', ''), 10)
+  if (isNaN(dataVersion)) {
+    throw new Error('Invalid encryption version')
+  }
+
+  // Note: In a full implementation, you'd need to handle version mismatches
+  // by looking up historical DEKs. For simplicity, we assume same version.
+  if (dataVersion !== keyVersion) {
+    console.warn(`DEK version mismatch: data=${dataVersion}, current=${keyVersion}`)
+    // In production, you'd look up the correct DEK version
+  }
+
+  const dek = getWorkspaceDEK(workspaceId, encryptedDek, keyVersion)
+  const iv = Buffer.from(ivHex, 'hex')
+  const authTag = Buffer.from(authTagHex, 'hex')
+
+  const decipher = crypto.createDecipheriv(ALGORITHM, dek, iv)
+  decipher.setAuthTag(authTag)
+
+  let decrypted = decipher.update(encryptedData, 'hex', 'utf8')
+  decrypted += decipher.final('utf8')
+
+  return decrypted
+}
+
+// =============================================================================
+// Phone Number Hashing (for matching without revealing PII)
+// =============================================================================
+
+/**
+ * Normalize a phone number to E.164 format
+ * @param phone - Phone number in various formats
+ * @returns Normalized E.164 phone number or null if invalid
+ */
+export function normalizePhoneE164(phone: string): string | null {
+  if (!phone) return null
+
+  // Remove all non-digit characters except leading +
+  let cleaned = phone.replace(/[^\d+]/g, '')
+
+  // If starts with +, keep it, otherwise assume it needs +
+  if (!cleaned.startsWith('+')) {
+    // If it's a reasonable length for a phone number, add +
+    if (cleaned.length >= 10 && cleaned.length <= 15) {
+      cleaned = '+' + cleaned
+    } else {
+      return null // Invalid phone number
+    }
+  }
+
+  // Validate E.164 format: + followed by 7-15 digits
+  if (/^\+[1-9]\d{6,14}$/.test(cleaned)) {
+    return cleaned
+  }
+
+  return null
+}
+
+/**
+ * Hash a phone number for storage/matching
+ * Uses SHA-256 for one-way hashing
+ *
+ * @param phone - Phone number (will be normalized first)
+ * @returns SHA-256 hash of normalized E.164 number, or null if invalid
+ */
+export function hashPhoneE164(phone: string): string | null {
+  const normalized = normalizePhoneE164(phone)
+  if (!normalized) return null
+
+  return crypto.createHash('sha256').update(normalized).digest('hex')
+}
+
+/**
+ * Check if two phone numbers match (normalized comparison)
+ * @param phone1 - First phone number
+ * @param phone2 - Second phone number
+ * @returns True if they normalize to the same E.164 number
+ */
+export function phoneNumbersMatch(phone1: string, phone2: string): boolean {
+  const norm1 = normalizePhoneE164(phone1)
+  const norm2 = normalizePhoneE164(phone2)
+
+  if (!norm1 || !norm2) return false
+  return norm1 === norm2
 }

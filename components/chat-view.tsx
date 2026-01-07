@@ -16,6 +16,8 @@ import { useUIStore } from '@/store/ui-store'
 import { queryKeys } from '@/lib/query-client'
 import { formatMessageTime, formatMessageDateHeader, isSameDay } from '@/lib/date-utils'
 import { cn } from '@/lib/utils'
+import { useToast } from '@/components/ui/toast'
+import { MessagesSkeleton, ChatHeaderSkeleton } from '@/components/ui/skeleton'
 
 interface Message {
   id: string
@@ -170,9 +172,7 @@ export function ChatView({ chatId }: ChatViewProps) {
         }}
       >
         {messagesLoading ? (
-          <div className="flex h-full items-center justify-center">
-            <div className="h-8 w-8 animate-spin rounded-full border-4 border-green-500 border-t-transparent" />
-          </div>
+          <MessagesSkeleton />
         ) : messages.length === 0 ? (
           <div className="flex h-full items-center justify-center">
             <p className="text-gray-500">No messages yet. Start the conversation!</p>
@@ -295,6 +295,7 @@ function DateHeader({ date }: { date: Date }) {
 
 function MessageBubble({ message }: { message: Message }) {
   const isOutbound = message.direction === 'outbound'
+  const hasMedia = message.media_url && ['image', 'video', 'audio', 'document', 'sticker'].includes(message.message_type)
 
   return (
     <div
@@ -302,30 +303,50 @@ function MessageBubble({ message }: { message: Message }) {
     >
       <div
         className={cn(
-          'max-w-[65%] rounded-lg px-3 py-2 shadow-sm',
-          isOutbound ? 'bg-[#d9fdd3]' : 'bg-white'
+          'max-w-[65%] rounded-lg shadow-sm overflow-hidden',
+          isOutbound ? 'bg-[#d9fdd3]' : 'bg-white',
+          hasMedia ? 'p-1' : 'px-3 py-2'
         )}
       >
         {/* Sender name (for group chats) */}
         {!isOutbound && message.sender_name && (
-          <p className="mb-1 text-xs font-medium text-green-600">
+          <p className={cn("text-xs font-medium text-green-600", hasMedia ? "px-2 pt-1 mb-1" : "mb-1")}>
             {message.sender_name}
           </p>
         )}
 
         {/* Message content */}
         {message.deleted_at ? (
-          <p className="italic text-gray-400">This message was deleted</p>
+          <p className="italic text-gray-400 px-2 py-1">This message was deleted</p>
         ) : (
-          <p className="whitespace-pre-wrap break-words text-sm text-gray-900">
-            {message.text}
-          </p>
+          <>
+            {/* Media content */}
+            {hasMedia && <MediaContent message={message} />}
+
+            {/* Text content */}
+            {message.text && (
+              <p className={cn(
+                "whitespace-pre-wrap break-words text-sm text-gray-900",
+                hasMedia ? "px-2 py-1" : ""
+              )}>
+                {message.text}
+              </p>
+            )}
+
+            {/* Text-only message */}
+            {!hasMedia && !message.text && (
+              <p className="text-sm text-gray-500 italic">
+                [{message.message_type} message]
+              </p>
+            )}
+          </>
         )}
 
         {/* Footer with time and status */}
         <div
           className={cn(
-            'mt-1 flex items-center gap-1',
+            'flex items-center gap-1',
+            hasMedia ? 'px-2 pb-1' : 'mt-1',
             isOutbound ? 'justify-end' : 'justify-start'
           )}
         >
@@ -340,6 +361,224 @@ function MessageBubble({ message }: { message: Message }) {
       </div>
     </div>
   )
+}
+
+function MediaContent({ message }: { message: Message }) {
+  const [imageError, setImageError] = useState(false)
+  const [viewOnceState, setViewOnceState] = useState<{
+    loading: boolean
+    viewed: boolean
+    mediaUrl: string | null
+    error: string | null
+  }>({ loading: false, viewed: false, mediaUrl: null, error: null })
+
+  // Handle view-once inbound messages
+  const handleViewOnceClick = async () => {
+    if (viewOnceState.loading || viewOnceState.viewed) return
+
+    setViewOnceState({ ...viewOnceState, loading: true, error: null })
+
+    try {
+      const response = await fetch(`/api/messages/${message.id}/view`, {
+        method: 'POST',
+      })
+      const data = await response.json()
+
+      if (data.can_view && data.media_url) {
+        setViewOnceState({
+          loading: false,
+          viewed: false,
+          mediaUrl: data.media_url,
+          error: null,
+        })
+      } else if (data.already_viewed) {
+        setViewOnceState({
+          loading: false,
+          viewed: true,
+          mediaUrl: null,
+          error: null,
+        })
+      } else {
+        setViewOnceState({
+          loading: false,
+          viewed: false,
+          mediaUrl: null,
+          error: data.error || 'Failed to view message',
+        })
+      }
+    } catch (error) {
+      setViewOnceState({
+        loading: false,
+        viewed: false,
+        mediaUrl: null,
+        error: 'Failed to view message',
+      })
+    }
+  }
+
+  // For view-once inbound messages that haven't been viewed yet
+  if (message.is_view_once && message.direction === 'inbound' && !viewOnceState.mediaUrl) {
+    // Already viewed
+    if (viewOnceState.viewed || message.viewed_at) {
+      return (
+        <div className="flex flex-col items-center justify-center bg-gray-100 rounded-lg p-6 min-h-[120px] min-w-[180px]">
+          <svg className="h-10 w-10 text-gray-400 mb-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+          </svg>
+          <span className="text-sm text-gray-500">View once photo</span>
+          <span className="text-xs text-gray-400 mt-1">Opened</span>
+        </div>
+      )
+    }
+
+    // Click to view
+    return (
+      <button
+        onClick={handleViewOnceClick}
+        disabled={viewOnceState.loading}
+        className="flex flex-col items-center justify-center bg-gradient-to-br from-purple-100 to-purple-50 rounded-lg p-6 min-h-[120px] min-w-[180px] hover:from-purple-200 hover:to-purple-100 transition-colors cursor-pointer border border-purple-200"
+      >
+        {viewOnceState.loading ? (
+          <div className="h-10 w-10 animate-spin rounded-full border-2 border-purple-500 border-t-transparent mb-2" />
+        ) : (
+          <svg className="h-10 w-10 text-purple-500 mb-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+          </svg>
+        )}
+        <span className="text-sm text-purple-600 font-medium">View once photo</span>
+        <span className="text-xs text-purple-400 mt-1">Click to view</span>
+        {viewOnceState.error && (
+          <span className="text-xs text-red-500 mt-1">{viewOnceState.error}</span>
+        )}
+      </button>
+    )
+  }
+
+  // Get the media URL to display (use view-once URL if available)
+  const displayMediaUrl = viewOnceState.mediaUrl || message.media_url
+  if (!displayMediaUrl) return null
+
+  const metadata = message.media_metadata || {}
+
+  switch (message.message_type) {
+    case 'image':
+    case 'sticker':
+      return (
+        <div className="relative">
+          {imageError ? (
+            <div className="flex items-center justify-center bg-gray-100 rounded-lg p-4 min-h-[100px]">
+              <span className="text-gray-400 text-sm">Image unavailable</span>
+            </div>
+          ) : (
+            <>
+              <img
+                src={displayMediaUrl}
+                alt="Image"
+                className={cn(
+                  "max-w-full rounded-lg cursor-pointer hover:opacity-95",
+                  message.message_type === 'sticker' ? "max-h-32" : "max-h-80"
+                )}
+                onError={() => setImageError(true)}
+                onClick={() => window.open(displayMediaUrl!, '_blank')}
+              />
+              {/* View-once indicator for outbound */}
+              {message.is_view_once && message.direction === 'outbound' && (
+                <div className="absolute bottom-2 left-2 bg-purple-600/80 text-white text-xs px-2 py-0.5 rounded-full flex items-center gap-1">
+                  <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                  </svg>
+                  <span>1</span>
+                </div>
+              )}
+            </>
+          )}
+        </div>
+      )
+
+    case 'video':
+      return (
+        <div className="relative">
+          <video
+            src={displayMediaUrl}
+            controls
+            className="max-w-full max-h-80 rounded-lg"
+            preload="metadata"
+          />
+          {metadata.duration && (
+            <span className="absolute bottom-2 right-2 bg-black/60 text-white text-xs px-1 rounded">
+              {formatDuration(metadata.duration)}
+            </span>
+          )}
+          {/* View-once indicator for outbound */}
+          {message.is_view_once && message.direction === 'outbound' && (
+            <div className="absolute bottom-2 left-2 bg-purple-600/80 text-white text-xs px-2 py-0.5 rounded-full flex items-center gap-1">
+              <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+              </svg>
+              <span>1</span>
+            </div>
+          )}
+        </div>
+      )
+
+    case 'audio':
+      return (
+        <div className="flex items-center gap-2 p-2 min-w-[200px]">
+          <audio
+            src={displayMediaUrl}
+            controls
+            className="w-full h-8"
+            preload="metadata"
+          />
+        </div>
+      )
+
+    case 'document':
+      return (
+        <a
+          href={displayMediaUrl}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="flex items-center gap-3 p-3 bg-gray-50 rounded-lg hover:bg-gray-100 transition-colors min-w-[200px]"
+        >
+          <div className="flex-shrink-0">
+            <svg className="h-8 w-8 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z" />
+            </svg>
+          </div>
+          <div className="flex-1 min-w-0">
+            <p className="text-sm font-medium text-gray-900 truncate">
+              {metadata.filename || 'Document'}
+            </p>
+            {metadata.size && (
+              <p className="text-xs text-gray-500">
+                {formatFileSize(metadata.size)}
+              </p>
+            )}
+          </div>
+          <svg className="h-5 w-5 text-gray-400 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+          </svg>
+        </a>
+      )
+
+    default:
+      return null
+  }
+}
+
+function formatDuration(seconds: number): string {
+  const mins = Math.floor(seconds / 60)
+  const secs = Math.floor(seconds % 60)
+  return `${mins}:${secs.toString().padStart(2, '0')}`
+}
+
+function formatFileSize(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
 }
 
 function MessageStatus({ status }: { status: string | null }) {
@@ -386,6 +625,22 @@ function MessageStatus({ status }: { status: string | null }) {
   return <span className="flex-shrink-0">{getStatusIcon()}</span>
 }
 
+interface SelectedFile {
+  file: File
+  preview: string
+  type: 'image' | 'video' | 'audio' | 'document'
+}
+
+// View status for view-once messages
+interface ViewOnceState {
+  [messageId: string]: {
+    loading: boolean
+    viewed: boolean
+    mediaUrl: string | null
+    error: string | null
+  }
+}
+
 function MessageComposer({
   chatId,
   channelColor,
@@ -394,9 +649,14 @@ function MessageComposer({
   channelColor: string | null | undefined
 }) {
   const [text, setText] = useState('')
+  const [selectedFile, setSelectedFile] = useState<SelectedFile | null>(null)
+  const [isViewOnce, setIsViewOnce] = useState(false)
+  const [uploadProgress, setUploadProgress] = useState(0)
   const inputRef = useRef<HTMLTextAreaElement>(null)
+  const fileInputRef = useRef<HTMLInputElement>(null)
   const queryClient = useQueryClient()
   const { getDraft, setDraft, clearDraft } = useUIStore()
+  const { addToast } = useToast()
 
   // Load draft on mount
   useEffect(() => {
@@ -415,8 +675,55 @@ function MessageComposer({
     }
   }, [text, chatId, setDraft])
 
-  // Send mutation
-  const sendMutation = useMutation({
+  // Cleanup file preview URL on unmount
+  useEffect(() => {
+    return () => {
+      if (selectedFile?.preview) {
+        URL.revokeObjectURL(selectedFile.preview)
+      }
+    }
+  }, [selectedFile])
+
+  // Determine file type
+  const getFileType = (file: File): SelectedFile['type'] => {
+    if (file.type.startsWith('image/')) return 'image'
+    if (file.type.startsWith('video/')) return 'video'
+    if (file.type.startsWith('audio/')) return 'audio'
+    return 'document'
+  }
+
+  // Handle file selection
+  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+
+    // Check file size (max 50MB for media)
+    if (file.size > 50 * 1024 * 1024) {
+      alert('File size must be less than 50MB')
+      return
+    }
+
+    const fileType = getFileType(file)
+    const preview = file.type.startsWith('image/') || file.type.startsWith('video/')
+      ? URL.createObjectURL(file)
+      : ''
+
+    setSelectedFile({ file, preview, type: fileType })
+    e.target.value = '' // Reset input
+  }
+
+  // Clear selected file
+  const clearFile = () => {
+    if (selectedFile?.preview) {
+      URL.revokeObjectURL(selectedFile.preview)
+    }
+    setSelectedFile(null)
+    setIsViewOnce(false)
+    setUploadProgress(0)
+  }
+
+  // Send mutation for text messages
+  const sendTextMutation = useMutation({
     mutationFn: async (messageText: string) => {
       const response = await fetch(`/api/chats/${chatId}/messages`, {
         method: 'POST',
@@ -432,22 +739,65 @@ function MessageComposer({
     onSuccess: () => {
       setText('')
       clearDraft(chatId)
-      // Invalidate messages to show the new one
-      queryClient.invalidateQueries({
-        queryKey: queryKeys.messages.list(chatId),
+      queryClient.invalidateQueries({ queryKey: queryKeys.messages.list(chatId) })
+      queryClient.invalidateQueries({ queryKey: queryKeys.chats.all })
+    },
+    onError: (error: Error) => {
+      addToast(error.message || 'Failed to send message', 'error')
+    },
+  })
+
+  // Send mutation for media messages
+  const sendMediaMutation = useMutation({
+    mutationFn: async ({ file, caption, viewOnce }: { file: File; caption: string; viewOnce: boolean }) => {
+      const formData = new FormData()
+      formData.append('file', file)
+      formData.append('caption', caption)
+      if (viewOnce) {
+        formData.append('view_once', 'true')
+      }
+
+      const response = await fetch(`/api/chats/${chatId}/messages/media`, {
+        method: 'POST',
+        body: formData,
       })
-      // Invalidate chat list to update last message preview
-      queryClient.invalidateQueries({
-        queryKey: queryKeys.chats.all,
-      })
+      if (!response.ok) {
+        const error = await response.json()
+        throw new Error(error.error || 'Failed to send media')
+      }
+      return response.json()
+    },
+    onSuccess: () => {
+      setText('')
+      clearFile()
+      clearDraft(chatId)
+      queryClient.invalidateQueries({ queryKey: queryKeys.messages.list(chatId) })
+      queryClient.invalidateQueries({ queryKey: queryKeys.chats.all })
+      addToast('Media sent successfully', 'success')
+    },
+    onError: (error: Error) => {
+      addToast(error.message || 'Failed to send media', 'error')
     },
   })
 
   const handleSend = () => {
-    const trimmedText = text.trim()
-    if (!trimmedText || sendMutation.isPending) return
-    sendMutation.mutate(trimmedText)
+    if (sendTextMutation.isPending || sendMediaMutation.isPending) return
+
+    if (selectedFile) {
+      sendMediaMutation.mutate({
+        file: selectedFile.file,
+        caption: text.trim(),
+        viewOnce: isViewOnce && (selectedFile.type === 'image' || selectedFile.type === 'video'),
+      })
+    } else {
+      const trimmedText = text.trim()
+      if (!trimmedText) return
+      sendTextMutation.mutate(trimmedText)
+    }
   }
+
+  // Check if view-once is available for selected file
+  const canBeViewOnce = selectedFile && (selectedFile.type === 'image' || selectedFile.type === 'video')
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter' && !e.shiftKey) {
@@ -464,6 +814,9 @@ function MessageComposer({
     }
   }, [text])
 
+  const isPending = sendTextMutation.isPending || sendMediaMutation.isPending
+  const canSend = selectedFile || text.trim()
+
   return (
     <div className="border-t border-gray-200 bg-gray-50 p-3">
       {/* Channel indicator */}
@@ -475,8 +828,121 @@ function MessageComposer({
         <span>Sending as this channel</span>
       </div>
 
+      {/* Selected file preview */}
+      {selectedFile && (
+        <div className="mb-2">
+          <div className="relative inline-block">
+            {selectedFile.type === 'image' && selectedFile.preview && (
+              <img
+                src={selectedFile.preview}
+                alt="Preview"
+                className={cn(
+                  "max-h-32 rounded-lg border",
+                  isViewOnce ? "border-purple-400 ring-2 ring-purple-200" : "border-gray-200"
+                )}
+              />
+            )}
+            {selectedFile.type === 'video' && selectedFile.preview && (
+              <video
+                src={selectedFile.preview}
+                className={cn(
+                  "max-h-32 rounded-lg border",
+                  isViewOnce ? "border-purple-400 ring-2 ring-purple-200" : "border-gray-200"
+                )}
+              />
+            )}
+            {selectedFile.type === 'audio' && (
+              <div className="flex items-center gap-2 bg-white rounded-lg border border-gray-200 px-3 py-2">
+                <svg className="h-8 w-8 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19V6l12-3v13M9 19c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zm12-3c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zM9 10l12-3" />
+                </svg>
+                <span className="text-sm text-gray-600 truncate max-w-[150px]">{selectedFile.file.name}</span>
+              </div>
+            )}
+            {selectedFile.type === 'document' && (
+              <div className="flex items-center gap-2 bg-white rounded-lg border border-gray-200 px-3 py-2">
+                <svg className="h-8 w-8 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z" />
+                </svg>
+                <span className="text-sm text-gray-600 truncate max-w-[150px]">{selectedFile.file.name}</span>
+              </div>
+            )}
+            {/* View-once indicator on image/video */}
+            {isViewOnce && canBeViewOnce && (
+              <div className="absolute bottom-1 left-1 bg-purple-600 text-white text-xs px-2 py-0.5 rounded-full flex items-center gap-1">
+                <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+                </svg>
+                <span>1</span>
+              </div>
+            )}
+            {/* Remove button */}
+            <button
+              onClick={clearFile}
+              className="absolute -top-2 -right-2 bg-red-500 text-white rounded-full p-1 hover:bg-red-600"
+            >
+              <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </button>
+          </div>
+          {/* View-once toggle for images/videos */}
+          {canBeViewOnce && (
+            <div className="mt-2">
+              <label className="flex items-center gap-2 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={isViewOnce}
+                  onChange={(e) => setIsViewOnce(e.target.checked)}
+                  className="h-4 w-4 rounded border-gray-300 text-purple-600 focus:ring-purple-500"
+                />
+                <span className="text-sm text-gray-600 flex items-center gap-1">
+                  <svg className="h-4 w-4 text-purple-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+                  </svg>
+                  View once
+                </span>
+                <span className="text-xs text-gray-400">(recipients can only view this once)</span>
+              </label>
+            </div>
+          )}
+        </div>
+      )}
+
       {/* Input area */}
       <div className="flex items-end gap-2">
+        {/* File attachment button */}
+        <button
+          onClick={() => fileInputRef.current?.click()}
+          className="rounded-full p-2 text-gray-500 hover:bg-gray-200"
+          title="Attach file"
+          disabled={isPending}
+        >
+          <svg
+            xmlns="http://www.w3.org/2000/svg"
+            className="h-6 w-6"
+            fill="none"
+            viewBox="0 0 24 24"
+            stroke="currentColor"
+          >
+            <path
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              strokeWidth={2}
+              d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13"
+            />
+          </svg>
+        </button>
+        <input
+          ref={fileInputRef}
+          type="file"
+          onChange={handleFileSelect}
+          className="hidden"
+          accept="image/*,video/*,audio/*,.pdf,.doc,.docx,.xls,.xlsx,.txt"
+        />
+
         {/* Emoji button (placeholder) */}
         <button className="rounded-full p-2 text-gray-500 hover:bg-gray-200">
           <svg
@@ -502,25 +968,25 @@ function MessageComposer({
             value={text}
             onChange={(e) => setText(e.target.value)}
             onKeyDown={handleKeyDown}
-            placeholder="Type a message"
+            placeholder={selectedFile ? "Add a caption..." : "Type a message"}
             className="w-full resize-none rounded-lg bg-white px-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
             rows={1}
-            disabled={sendMutation.isPending}
+            disabled={isPending}
           />
         </div>
 
         {/* Send button */}
         <button
           onClick={handleSend}
-          disabled={!text.trim() || sendMutation.isPending}
+          disabled={!canSend || isPending}
           className={cn(
             'rounded-full p-2 transition-colors',
-            text.trim() && !sendMutation.isPending
+            canSend && !isPending
               ? 'bg-green-500 text-white hover:bg-green-600'
               : 'text-gray-400'
           )}
         >
-          {sendMutation.isPending ? (
+          {isPending ? (
             <div className="h-6 w-6 animate-spin rounded-full border-2 border-white border-t-transparent" />
           ) : (
             <svg
@@ -541,12 +1007,6 @@ function MessageComposer({
         </button>
       </div>
 
-      {/* Error message */}
-      {sendMutation.isError && (
-        <p className="mt-2 text-xs text-red-500">
-          Failed to send message. Please try again.
-        </p>
-      )}
     </div>
   )
 }

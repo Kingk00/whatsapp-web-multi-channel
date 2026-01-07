@@ -1,4 +1,16 @@
-import { encrypt, decrypt, hash, generateToken } from '@/lib/encryption'
+import {
+  encrypt,
+  decrypt,
+  hash,
+  generateToken,
+  generateWorkspaceDEK,
+  encryptWithWorkspaceDEK,
+  decryptWithWorkspaceDEK,
+  clearDEKCache,
+  normalizePhoneE164,
+  hashPhoneE164,
+  phoneNumbersMatch,
+} from '@/lib/encryption'
 
 describe('Encryption Module', () => {
   describe('encrypt / decrypt', () => {
@@ -159,5 +171,328 @@ describe('Encryption Module - Environment', () => {
     delete process.env.ENCRYPTION_KEY
 
     expect(() => decrypt(encrypted)).toThrow('ENCRYPTION_KEY environment variable is not set')
+  })
+})
+
+describe('Workspace DEK Functions', () => {
+  const workspaceId = 'test-workspace-123'
+
+  beforeEach(() => {
+    clearDEKCache()
+  })
+
+  describe('generateWorkspaceDEK', () => {
+    it('should generate an encrypted DEK', () => {
+      const encryptedDek = generateWorkspaceDEK()
+
+      // Should be a valid encrypted format (salt:iv:authTag:data)
+      const parts = encryptedDek.split(':')
+      expect(parts.length).toBe(4)
+    })
+
+    it('should generate unique DEKs each time', () => {
+      const dek1 = generateWorkspaceDEK()
+      const dek2 = generateWorkspaceDEK()
+
+      expect(dek1).not.toBe(dek2)
+    })
+  })
+
+  describe('encryptWithWorkspaceDEK / decryptWithWorkspaceDEK', () => {
+    it('should encrypt and decrypt data with workspace DEK', () => {
+      const encryptedDek = generateWorkspaceDEK()
+      const keyVersion = 1
+      const plaintext = 'Hello, World!'
+
+      const encrypted = encryptWithWorkspaceDEK(
+        workspaceId,
+        encryptedDek,
+        keyVersion,
+        plaintext
+      )
+      const decrypted = decryptWithWorkspaceDEK(
+        workspaceId,
+        encryptedDek,
+        keyVersion,
+        encrypted
+      )
+
+      expect(decrypted).toBe(plaintext)
+    })
+
+    it('should produce versioned encrypted format', () => {
+      const encryptedDek = generateWorkspaceDEK()
+      const keyVersion = 3
+
+      const encrypted = encryptWithWorkspaceDEK(
+        workspaceId,
+        encryptedDek,
+        keyVersion,
+        'test'
+      )
+
+      // Format: v{version}:iv:authTag:ciphertext
+      const parts = encrypted.split(':')
+      expect(parts.length).toBe(4)
+      expect(parts[0]).toBe('v3')
+    })
+
+    it('should handle empty strings', () => {
+      const encryptedDek = generateWorkspaceDEK()
+      const keyVersion = 1
+
+      const encrypted = encryptWithWorkspaceDEK(
+        workspaceId,
+        encryptedDek,
+        keyVersion,
+        ''
+      )
+      const decrypted = decryptWithWorkspaceDEK(
+        workspaceId,
+        encryptedDek,
+        keyVersion,
+        ''
+      )
+
+      expect(encrypted).toBe('')
+      expect(decrypted).toBe('')
+    })
+
+    it('should handle unicode and special characters', () => {
+      const encryptedDek = generateWorkspaceDEK()
+      const keyVersion = 1
+      const plaintext = 'Hello 世界 🌍 émoji \n\t special chars: <>&"'
+
+      const encrypted = encryptWithWorkspaceDEK(
+        workspaceId,
+        encryptedDek,
+        keyVersion,
+        plaintext
+      )
+      const decrypted = decryptWithWorkspaceDEK(
+        workspaceId,
+        encryptedDek,
+        keyVersion,
+        encrypted
+      )
+
+      expect(decrypted).toBe(plaintext)
+    })
+
+    it('should use cached DEK for multiple operations', () => {
+      const encryptedDek = generateWorkspaceDEK()
+      const keyVersion = 1
+
+      // First operation populates cache
+      const encrypted1 = encryptWithWorkspaceDEK(
+        workspaceId,
+        encryptedDek,
+        keyVersion,
+        'test1'
+      )
+
+      // Second operation should use cache
+      const encrypted2 = encryptWithWorkspaceDEK(
+        workspaceId,
+        encryptedDek,
+        keyVersion,
+        'test2'
+      )
+
+      const decrypted1 = decryptWithWorkspaceDEK(
+        workspaceId,
+        encryptedDek,
+        keyVersion,
+        encrypted1
+      )
+      const decrypted2 = decryptWithWorkspaceDEK(
+        workspaceId,
+        encryptedDek,
+        keyVersion,
+        encrypted2
+      )
+
+      expect(decrypted1).toBe('test1')
+      expect(decrypted2).toBe('test2')
+    })
+
+    it('should throw error for invalid encrypted format', () => {
+      const encryptedDek = generateWorkspaceDEK()
+      const keyVersion = 1
+
+      expect(() =>
+        decryptWithWorkspaceDEK(workspaceId, encryptedDek, keyVersion, 'invalid')
+      ).toThrow('Invalid encrypted data format')
+
+      expect(() =>
+        decryptWithWorkspaceDEK(workspaceId, encryptedDek, keyVersion, 'a:b:c')
+      ).toThrow('Invalid encrypted data format')
+    })
+
+    it('should throw error for invalid version format', () => {
+      const encryptedDek = generateWorkspaceDEK()
+      const keyVersion = 1
+
+      expect(() =>
+        decryptWithWorkspaceDEK(
+          workspaceId,
+          encryptedDek,
+          keyVersion,
+          'invalid:iv:authTag:data'
+        )
+      ).toThrow('Invalid encryption version')
+    })
+  })
+
+  describe('clearDEKCache', () => {
+    it('should clear cache for specific workspace', () => {
+      const encryptedDek = generateWorkspaceDEK()
+      const keyVersion = 1
+
+      // Populate cache
+      encryptWithWorkspaceDEK(workspaceId, encryptedDek, keyVersion, 'test')
+
+      // Clear specific workspace
+      clearDEKCache(workspaceId)
+
+      // Should still work (will re-decrypt DEK)
+      const encrypted = encryptWithWorkspaceDEK(
+        workspaceId,
+        encryptedDek,
+        keyVersion,
+        'test2'
+      )
+      const decrypted = decryptWithWorkspaceDEK(
+        workspaceId,
+        encryptedDek,
+        keyVersion,
+        encrypted
+      )
+
+      expect(decrypted).toBe('test2')
+    })
+
+    it('should clear all caches when called without argument', () => {
+      const encryptedDek1 = generateWorkspaceDEK()
+      const encryptedDek2 = generateWorkspaceDEK()
+      const keyVersion = 1
+
+      // Populate cache for two workspaces
+      encryptWithWorkspaceDEK('workspace1', encryptedDek1, keyVersion, 'test')
+      encryptWithWorkspaceDEK('workspace2', encryptedDek2, keyVersion, 'test')
+
+      // Clear all
+      clearDEKCache()
+
+      // Both should still work (will re-decrypt DEKs)
+      const encrypted1 = encryptWithWorkspaceDEK(
+        'workspace1',
+        encryptedDek1,
+        keyVersion,
+        'new1'
+      )
+      const encrypted2 = encryptWithWorkspaceDEK(
+        'workspace2',
+        encryptedDek2,
+        keyVersion,
+        'new2'
+      )
+
+      expect(
+        decryptWithWorkspaceDEK('workspace1', encryptedDek1, keyVersion, encrypted1)
+      ).toBe('new1')
+      expect(
+        decryptWithWorkspaceDEK('workspace2', encryptedDek2, keyVersion, encrypted2)
+      ).toBe('new2')
+    })
+  })
+})
+
+describe('Phone Number Hashing', () => {
+  describe('normalizePhoneE164', () => {
+    it('should normalize phone with + prefix', () => {
+      expect(normalizePhoneE164('+14155551234')).toBe('+14155551234')
+      expect(normalizePhoneE164('+447911123456')).toBe('+447911123456')
+    })
+
+    it('should add + prefix to valid numbers without it', () => {
+      expect(normalizePhoneE164('14155551234')).toBe('+14155551234')
+      expect(normalizePhoneE164('447911123456')).toBe('+447911123456')
+    })
+
+    it('should strip non-digit characters', () => {
+      expect(normalizePhoneE164('+1 (415) 555-1234')).toBe('+14155551234')
+      expect(normalizePhoneE164('+1-415-555-1234')).toBe('+14155551234')
+      expect(normalizePhoneE164('+1.415.555.1234')).toBe('+14155551234')
+    })
+
+    it('should return null for invalid phones', () => {
+      expect(normalizePhoneE164('')).toBeNull()
+      expect(normalizePhoneE164('123')).toBeNull() // Too short
+      expect(normalizePhoneE164('abcdefghijk')).toBeNull() // Non-digits
+      expect(normalizePhoneE164('+0123456789')).toBeNull() // Starts with 0 after +
+    })
+
+    it('should handle edge cases', () => {
+      // Minimum valid length (7 digits after +)
+      expect(normalizePhoneE164('+1234567')).toBe('+1234567')
+      // Maximum valid length (15 digits after +)
+      expect(normalizePhoneE164('+123456789012345')).toBe('+123456789012345')
+      // Too long (16 digits after +)
+      expect(normalizePhoneE164('+1234567890123456')).toBeNull()
+    })
+  })
+
+  describe('hashPhoneE164', () => {
+    it('should hash valid phone numbers', () => {
+      const hash = hashPhoneE164('+14155551234')
+
+      expect(hash).toBeDefined()
+      expect(hash!.length).toBe(64) // SHA-256 = 64 hex chars
+      expect(/^[0-9a-f]+$/.test(hash!)).toBe(true)
+    })
+
+    it('should produce consistent hashes for same number', () => {
+      const hash1 = hashPhoneE164('+14155551234')
+      const hash2 = hashPhoneE164('+14155551234')
+      const hash3 = hashPhoneE164('14155551234') // Without +
+      const hash4 = hashPhoneE164('+1 (415) 555-1234') // Formatted
+
+      expect(hash1).toBe(hash2)
+      expect(hash1).toBe(hash3)
+      expect(hash1).toBe(hash4)
+    })
+
+    it('should produce different hashes for different numbers', () => {
+      const hash1 = hashPhoneE164('+14155551234')
+      const hash2 = hashPhoneE164('+14155551235')
+
+      expect(hash1).not.toBe(hash2)
+    })
+
+    it('should return null for invalid phones', () => {
+      expect(hashPhoneE164('')).toBeNull()
+      expect(hashPhoneE164('invalid')).toBeNull()
+      expect(hashPhoneE164('123')).toBeNull()
+    })
+  })
+
+  describe('phoneNumbersMatch', () => {
+    it('should match equivalent phone numbers', () => {
+      expect(phoneNumbersMatch('+14155551234', '14155551234')).toBe(true)
+      expect(phoneNumbersMatch('+1 (415) 555-1234', '+14155551234')).toBe(true)
+      expect(phoneNumbersMatch('1-415-555-1234', '+1.415.555.1234')).toBe(true)
+    })
+
+    it('should not match different phone numbers', () => {
+      expect(phoneNumbersMatch('+14155551234', '+14155551235')).toBe(false)
+      expect(phoneNumbersMatch('+14155551234', '+447911123456')).toBe(false)
+    })
+
+    it('should return false for invalid numbers', () => {
+      expect(phoneNumbersMatch('', '+14155551234')).toBe(false)
+      expect(phoneNumbersMatch('+14155551234', '')).toBe(false)
+      expect(phoneNumbersMatch('invalid', '+14155551234')).toBe(false)
+    })
   })
 })

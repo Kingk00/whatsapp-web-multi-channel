@@ -73,9 +73,7 @@ const { data: channelData } = await serviceClient
 - GitHub integration (auto-deploy on push)
 
 ### Remaining Work:
-- Media message support (images, documents, etc.)
-- Cron job for outbox processing (backup mechanism)
-- UI polish and error handling
+- None - all core features complete!
 
 ### Already Completed (DO NOT REDO):
 - Real-time message updates (Supabase Realtime) - ALREADY IMPLEMENTED, SKIP THIS
@@ -87,6 +85,30 @@ const { data: channelData } = await serviceClient
   - `/settings/team` page for admin to manage team
   - `/invite/[token]` page for users to accept invites
   - `/api/auth/invite` API for processing invite acceptance
+- Cron job for outbox processing - FIXED (2026-01-06):
+  - Updated `app/api/cron/process-outbox/route.ts` to use direct api_token from channels table
+  - Removed encryption/decryption dependencies
+  - Added simple `sendWhapiMessage` helper function
+  - Same approach as message sending fix (bloe-engine style)
+- Media message support - IMPLEMENTED (2026-01-06):
+  - Display media in chat: images, videos, audio, documents, stickers
+  - File attachment button in composer
+  - Media upload API: `/api/chats/[id]/messages/media`
+  - Sends media via Whapi using base64 encoding
+  - File size limit: 50MB
+- UI polish - IMPLEMENTED (2026-01-06):
+  - Toast notification system for user feedback
+  - Loading skeletons for chat list and messages
+  - Better error handling with toast messages
+- Chat search - IMPLEMENTED (2026-01-06):
+  - Search input in sidebar with clear button
+  - Client-side filtering by name, phone, message preview, channel name
+  - "No results found" empty state
+  - Search hint in placeholder (Ctrl+K)
+- Keyboard shortcuts - IMPLEMENTED (2026-01-06):
+  - `Ctrl+K` or `/`: Focus search input
+  - `Escape`: Clear search / Close details panel / Deselect chat
+  - Custom `useKeyboardShortcuts` hook in `hooks/use-keyboard-shortcuts.ts`
 
 ### Key Identifiers:
 - Supabase Project: `mobokomuxbfqbuzwasbe`

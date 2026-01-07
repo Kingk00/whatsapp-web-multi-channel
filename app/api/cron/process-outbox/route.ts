@@ -1,12 +1,23 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createServiceRoleClient } from '@/lib/supabase/server'
-import { decrypt } from '@/lib/encryption'
-import {
-  createWhapiClient,
-  isRateLimitError,
-  isRetryableError,
-  getRetryDelay,
-} from '@/lib/whapi-client'
+
+// Simple Whapi send function (matches bloe-engine approach)
+async function sendWhapiMessage(token: string, type: string, payload: any) {
+  const endpoint = type === 'text'
+    ? 'https://gate.whapi.cloud/messages/text'
+    : `https://gate.whapi.cloud/messages/${type}`
+
+  const response = await fetch(endpoint, {
+    method: 'POST',
+    headers: {
+      'Authorization': `Bearer ${token}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(payload),
+  })
+
+  return response.json()
+}
 
 /**
  * GET /api/cron/process-outbox
@@ -133,60 +144,61 @@ async function processMessage(
       })
       .eq('id', message.id)
 
-    // Get channel token
-    const { data: channelToken, error: tokenError } = await supabase
-      .from('channel_tokens')
-      .select('encrypted_token')
-      .eq('channel_id', message.channel_id)
-      .eq('token_type', 'whapi')
+    // Get channel with api_token directly (bloe-engine approach)
+    // DO NOT CHANGE: See IMPLEMENTATION_NOTES.md for why we use direct token
+    const { data: channel, error: channelError } = await supabase
+      .from('channels')
+      .select('api_token')
+      .eq('id', message.channel_id)
       .single()
 
-    if (tokenError || !channelToken) {
-      await markFailed(supabase, message.id, 'Channel token not found')
-      return { id: message.id, success: false, error: 'Channel token not found' }
+    if (channelError || !channel?.api_token) {
+      await markFailed(supabase, message.id, 'Channel API token not found')
+      return { id: message.id, success: false, error: 'Channel API token not found' }
     }
 
-    // Decrypt token
-    let decryptedToken: string
-    try {
-      decryptedToken = decrypt(channelToken.encrypted_token)
-    } catch (e) {
-      await markFailed(supabase, message.id, 'Token decryption failed')
-      return { id: message.id, success: false, error: 'Token decryption failed' }
-    }
-
-    // Create Whapi client and send message
-    const whapi = createWhapiClient(decryptedToken)
     const payload = message.payload
-
     let result
+
+    // Send message based on type
     switch (message.message_type) {
       case 'text':
-        result = await whapi.sendText({
+        result = await sendWhapiMessage(channel.api_token, 'text', {
           to: payload.to,
           body: payload.body,
         })
         break
       case 'image':
-        result = await whapi.sendImage(payload.to, payload.media, payload.caption)
+        result = await sendWhapiMessage(channel.api_token, 'image', {
+          to: payload.to,
+          media: payload.media,
+          caption: payload.caption,
+        })
         break
       case 'video':
-        result = await whapi.sendVideo(payload.to, payload.media, payload.caption)
+        result = await sendWhapiMessage(channel.api_token, 'video', {
+          to: payload.to,
+          media: payload.media,
+          caption: payload.caption,
+        })
         break
       case 'document':
-        result = await whapi.sendDocument(
-          payload.to,
-          payload.media,
-          payload.filename,
-          payload.caption
-        )
+        result = await sendWhapiMessage(channel.api_token, 'document', {
+          to: payload.to,
+          media: payload.media,
+          filename: payload.filename,
+          caption: payload.caption,
+        })
         break
       case 'audio':
-        result = await whapi.sendAudio(payload.to, payload.media)
+        result = await sendWhapiMessage(channel.api_token, 'audio', {
+          to: payload.to,
+          media: payload.media,
+        })
         break
       default:
         // Default to text
-        result = await whapi.sendText({
+        result = await sendWhapiMessage(channel.api_token, 'text', {
           to: payload.to,
           body: payload.body || payload.text,
         })
@@ -202,20 +214,20 @@ async function processMessage(
   } catch (error: any) {
     console.error(`Failed to send message ${message.id}:`, error)
 
-    // Handle rate limiting
-    if (isRateLimitError(error)) {
+    // Handle rate limiting (429 status)
+    if (error.message?.includes('429') || error.status === 429) {
       await pauseChannel(supabase, message.channel_id, 'Rate limited by WhatsApp')
       await reschedule(supabase, message, error)
       return { id: message.id, success: false, error: 'Rate limited' }
     }
 
-    // Handle retryable errors
-    if (isRetryableError(error) && message.attempts < message.max_attempts) {
+    // Retry if under max attempts
+    if (message.attempts < message.max_attempts) {
       await reschedule(supabase, message, error)
       return { id: message.id, success: false, error: error.message || 'Retrying' }
     }
 
-    // Non-retryable or max attempts reached
+    // Max attempts reached
     await markFailed(supabase, message.id, error.message || 'Unknown error')
     return { id: message.id, success: false, error: error.message || 'Failed' }
   }
@@ -255,7 +267,9 @@ async function markSent(supabase: any, message: any, waMessageId: string) {
  * Reschedule message for retry with exponential backoff
  */
 async function reschedule(supabase: any, message: any, error: any) {
-  const delayMs = getRetryDelay(error, message.attempts)
+  // Exponential backoff: 1, 2, 4, 8, 16 minutes
+  const delayMinutes = Math.pow(2, message.attempts - 1)
+  const delayMs = delayMinutes * 60 * 1000
   const nextAttempt = new Date(Date.now() + delayMs).toISOString()
 
   await supabase

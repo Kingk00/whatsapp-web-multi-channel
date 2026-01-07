@@ -26,6 +26,9 @@ $$ LANGUAGE plpgsql SECURITY DEFINER;
 -- Function: Reset chat unread count
 -- =============================================================================
 
+-- Drop existing function if parameter names differ
+DROP FUNCTION IF EXISTS reset_chat_unread(UUID);
+
 CREATE OR REPLACE FUNCTION reset_chat_unread(chat_id UUID)
 RETURNS void AS $$
 BEGIN
@@ -40,6 +43,9 @@ $$ LANGUAGE plpgsql SECURITY DEFINER;
 -- =============================================================================
 -- Function: Get total unread count for a channel
 -- =============================================================================
+
+-- Drop existing function if parameter names differ
+DROP FUNCTION IF EXISTS get_channel_unread_count(UUID);
 
 CREATE OR REPLACE FUNCTION get_channel_unread_count(channel_id UUID)
 RETURNS INTEGER AS $$
