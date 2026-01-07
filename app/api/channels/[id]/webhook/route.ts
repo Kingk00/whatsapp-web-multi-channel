@@ -101,9 +101,8 @@ export async function POST(
           url: webhookUrl,
           events: [
             { type: 'messages', method: 'post' },
-            { type: 'acks', method: 'post' },
-            { type: 'chats', method: 'post' },
             { type: 'statuses', method: 'post' },
+            { type: 'chats', method: 'post' },
           ],
           mode: 'body',
         }],
