@@ -131,6 +131,29 @@ export function ChannelList({ onChannelSelect }: ChannelListProps) {
     setTimeout(() => setCopiedId(null), 2000)
   }
 
+  const [configuringWebhook, setConfiguringWebhook] = useState<string | null>(null)
+
+  const configureWebhook = async (channelId: string) => {
+    setConfiguringWebhook(channelId)
+    try {
+      const response = await fetch(`/api/channels/${channelId}/webhook`, {
+        method: 'POST',
+      })
+      const data = await response.json()
+
+      if (!response.ok) {
+        throw new Error(data.error || 'Failed to configure webhook')
+      }
+
+      addToast('Webhook configured successfully in Whapi.cloud!', 'success')
+      fetchChannels() // Refresh to show updated status
+    } catch (err) {
+      addToast(err instanceof Error ? err.message : 'Failed to configure webhook', 'error')
+    } finally {
+      setConfiguringWebhook(null)
+    }
+  }
+
   if (loading) {
     return (
       <div className="flex items-center justify-center py-12">
@@ -238,42 +261,72 @@ export function ChannelList({ onChannelSelect }: ChannelListProps) {
                   </>
                 )}
               </p>
-              {/* Webhook URL - always visible */}
-              {channel.webhook_secret && (
-                <div className="mt-3 p-2 rounded bg-muted/50 border">
+              {/* Webhook Configuration */}
+              <div className="mt-3 p-2 rounded bg-muted/50 border">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-xs font-medium text-muted-foreground">Webhook:</span>
                   <div className="flex items-center gap-2">
-                    <span className="text-xs font-medium text-muted-foreground">Webhook URL:</span>
                     <Button
                       size="sm"
-                      variant="outline"
+                      variant="default"
                       onClick={(e) => {
                         e.stopPropagation()
-                        copyWebhookUrl(channel)
+                        configureWebhook(channel.id)
                       }}
-                      className="h-6 text-xs"
+                      disabled={configuringWebhook === channel.id}
+                      className="h-6 text-xs bg-green-600 hover:bg-green-700"
                     >
-                      {copiedId === channel.id ? (
+                      {configuringWebhook === channel.id ? (
                         <>
-                          <svg className="h-3 w-3 mr-1 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                          <svg className="h-3 w-3 mr-1 animate-spin" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
                           </svg>
-                          Copied!
+                          Configuring...
                         </>
                       ) : (
                         <>
                           <svg className="h-3 w-3 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
                           </svg>
-                          Copy URL
+                          Configure Webhook
                         </>
                       )}
                     </Button>
+                    {channel.webhook_secret && (
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          copyWebhookUrl(channel)
+                        }}
+                        className="h-6 text-xs"
+                      >
+                        {copiedId === channel.id ? (
+                          <>
+                            <svg className="h-3 w-3 mr-1 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                            </svg>
+                            Copied!
+                          </>
+                        ) : (
+                          <>
+                            <svg className="h-3 w-3 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                            </svg>
+                            Copy URL
+                          </>
+                        )}
+                      </Button>
+                    )}
                   </div>
-                  <p className="text-xs text-orange-600 mt-1">
-                    Configure this URL in Whapi.cloud → Channel Settings → Webhook URL
-                  </p>
                 </div>
-              )}
+                <p className="text-xs text-muted-foreground mt-1">
+                  Click "Configure Webhook" to automatically set up message receiving in Whapi.cloud
+                </p>
+              </div>
             </div>
             {editingId !== channel.id && (
               <Button

@@ -153,7 +153,52 @@ export async function POST(request: NextRequest) {
           .update({ phone_number: phoneNumber })
           .eq('id', channel.id)
       }
+
+      // Configure webhook URL in Whapi.cloud
+      const baseUrl = request.headers.get('origin') || request.headers.get('host')
+      const protocol = baseUrl?.includes('localhost') ? 'http' : 'https'
+      const webhookUrl = `${protocol}://${baseUrl?.replace(/^https?:\/\//, '')}/api/webhooks/whapi/${channel.id}?secret=${webhookSecret}`
+
+      console.log('[Channel Creation] Configuring webhook URL:', webhookUrl)
+
+      const webhookConfigResponse = await fetch('https://gate.whapi.cloud/settings', {
+        method: 'PATCH',
+        headers: {
+          'Authorization': `Bearer ${whapi_token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          webhooks: [{
+            url: webhookUrl,
+            events: [
+              { type: 'messages', method: 'post' },
+              { type: 'acks', method: 'post' },
+              { type: 'chats', method: 'post' },
+              { type: 'statuses', method: 'post' },
+            ],
+            mode: 'body',
+          }],
+        }),
+      })
+
+      if (!webhookConfigResponse.ok) {
+        const errorText = await webhookConfigResponse.text()
+        console.error('[Channel Creation] Failed to configure webhook:', errorText)
+        // Don't fail the channel creation, just log the error
+        // User can manually configure the webhook
+      } else {
+        console.log('[Channel Creation] Webhook configured successfully')
+        // Update channel status to indicate webhook is configured
+        await supabase
+          .from('channels')
+          .update({
+            status: 'pending_qr',
+            health_status: { status: 'webhook_configured', configured_at: new Date().toISOString() }
+          })
+          .eq('id', channel.id)
+      }
     } catch (error) {
+      console.error('[Channel Creation] Whapi verification/webhook config error:', error)
       // If verification fails, keep the channel but leave status as INITIALIZING
       // The user can try to connect via QR code
     }
