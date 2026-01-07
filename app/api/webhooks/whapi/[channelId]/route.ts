@@ -27,12 +27,12 @@ import { processWebhookEvent } from '@/lib/webhook-processor'
  */
 export async function POST(
   request: NextRequest,
-  { params }: { params: { channelId: string } }
+  { params }: { params: Promise<{ channelId: string }> }
 ) {
   const startTime = Date.now()
 
   try {
-    const { channelId } = params
+    const { channelId } = await params
 
     // Extract webhook secret from request
     const providedSecret = extractWebhookSecret(request)
@@ -143,10 +143,10 @@ export async function POST(
  */
 export async function GET(
   request: NextRequest,
-  { params }: { params: { channelId: string } }
+  { params }: { params: Promise<{ channelId: string }> }
 ) {
   try {
-    const { channelId } = params
+    const { channelId } = await params
 
     // Extract webhook secret from request
     const providedSecret = extractWebhookSecret(request)
