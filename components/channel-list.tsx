@@ -132,6 +132,8 @@ export function ChannelList({ onChannelSelect }: ChannelListProps) {
   }
 
   const [configuringWebhook, setConfiguringWebhook] = useState<string | null>(null)
+  const [deletingChannelId, setDeletingChannelId] = useState<string | null>(null)
+  const [deleteLoading, setDeleteLoading] = useState(false)
 
   const configureWebhook = async (channelId: string) => {
     setConfiguringWebhook(channelId)
@@ -151,6 +153,28 @@ export function ChannelList({ onChannelSelect }: ChannelListProps) {
       addToast(err instanceof Error ? err.message : 'Failed to configure webhook', 'error')
     } finally {
       setConfiguringWebhook(null)
+    }
+  }
+
+  const deleteChannel = async (channelId: string) => {
+    setDeleteLoading(true)
+    try {
+      const response = await fetch(`/api/channels/${channelId}`, {
+        method: 'DELETE',
+      })
+      const data = await response.json()
+
+      if (!response.ok) {
+        throw new Error(data.error || 'Failed to delete channel')
+      }
+
+      addToast('Channel deleted successfully', 'success')
+      setDeletingChannelId(null)
+      fetchChannels()
+    } catch (err) {
+      addToast(err instanceof Error ? err.message : 'Failed to delete channel', 'error')
+    } finally {
+      setDeleteLoading(false)
     }
   }
 
@@ -329,30 +353,88 @@ export function ChannelList({ onChannelSelect }: ChannelListProps) {
               </div>
             </div>
             {editingId !== channel.id && (
-              <Button
-                size="sm"
-                variant="ghost"
-                onClick={(e) => {
-                  e.stopPropagation()
-                  startEditing(channel)
-                }}
-                className="text-muted-foreground hover:text-foreground"
-              >
-                <svg
-                  xmlns="http://www.w3.org/2000/svg"
-                  className="h-4 w-4"
-                  fill="none"
-                  viewBox="0 0 24 24"
-                  stroke="currentColor"
+              <div className="flex items-center gap-1">
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    startEditing(channel)
+                  }}
+                  className="text-muted-foreground hover:text-foreground"
+                  title="Rename channel"
                 >
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    strokeWidth={2}
-                    d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"
-                  />
-                </svg>
-              </Button>
+                  <svg
+                    xmlns="http://www.w3.org/2000/svg"
+                    className="h-4 w-4"
+                    fill="none"
+                    viewBox="0 0 24 24"
+                    stroke="currentColor"
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth={2}
+                      d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"
+                    />
+                  </svg>
+                </Button>
+                {deletingChannelId === channel.id ? (
+                  <div className="flex items-center gap-1 ml-2">
+                    <span className="text-xs text-muted-foreground">Delete?</span>
+                    <Button
+                      size="sm"
+                      variant="destructive"
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        deleteChannel(channel.id)
+                      }}
+                      disabled={deleteLoading}
+                      className="h-6 text-xs"
+                    >
+                      {deleteLoading ? '...' : 'Yes'}
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        setDeletingChannelId(null)
+                      }}
+                      disabled={deleteLoading}
+                      className="h-6 text-xs"
+                    >
+                      No
+                    </Button>
+                  </div>
+                ) : (
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      setDeletingChannelId(channel.id)
+                    }}
+                    className="text-destructive hover:text-destructive"
+                    title="Delete channel"
+                  >
+                    <svg
+                      xmlns="http://www.w3.org/2000/svg"
+                      className="h-4 w-4"
+                      fill="none"
+                      viewBox="0 0 24 24"
+                      stroke="currentColor"
+                    >
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        strokeWidth={2}
+                        d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"
+                      />
+                    </svg>
+                  </Button>
+                )}
+              </div>
             )}
           </div>
         </div>

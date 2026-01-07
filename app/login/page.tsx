@@ -8,29 +8,61 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 
 export default function LoginPage() {
-  const [email, setEmail] = useState('')
+  const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [message, setMessage] = useState<string | null>(null)
-  const [mode, setMode] = useState<'password' | 'magic-link'>('password')
   const router = useRouter()
   const supabase = createClient()
 
-  const handlePasswordLogin = async (e: React.FormEvent) => {
+  const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault()
     setLoading(true)
     setError(null)
-    setMessage(null)
 
     try {
+      // First, look up the email by username
+      const { data: profile, error: lookupError } = await supabase
+        .from('profiles')
+        .select('user_id')
+        .eq('username', username.toLowerCase())
+        .single()
+
+      if (lookupError || !profile) {
+        setError('Invalid username or password')
+        setLoading(false)
+        return
+      }
+
+      // Get the user's email from auth.users via the admin API
+      // Since we can't access auth.users directly from client,
+      // we'll use a workaround: try to sign in with username as email first,
+      // and if that fails, try to look up by user_id
+
+      // Try signing in with username@workspace.local pattern
+      // Or use a server-side API to look up the email
+      const response = await fetch('/api/auth/lookup-email', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username: username.toLowerCase() }),
+      })
+
+      if (!response.ok) {
+        setError('Invalid username or password')
+        setLoading(false)
+        return
+      }
+
+      const { email } = await response.json()
+
+      // Now sign in with the email
       const { data, error: signInError } = await supabase.auth.signInWithPassword({
         email,
         password,
       })
 
       if (signInError) {
-        setError(signInError.message)
+        setError('Invalid username or password')
         return
       }
 
@@ -38,33 +70,6 @@ export default function LoginPage() {
         router.push('/inbox')
         router.refresh()
       }
-    } catch (err) {
-      setError('An unexpected error occurred')
-    } finally {
-      setLoading(false)
-    }
-  }
-
-  const handleMagicLinkLogin = async (e: React.FormEvent) => {
-    e.preventDefault()
-    setLoading(true)
-    setError(null)
-    setMessage(null)
-
-    try {
-      const { error: signInError } = await supabase.auth.signInWithOtp({
-        email,
-        options: {
-          emailRedirectTo: `${window.location.origin}/inbox`,
-        },
-      })
-
-      if (signInError) {
-        setError(signInError.message)
-        return
-      }
-
-      setMessage('Check your email for the magic link!')
     } catch (err) {
       setError('An unexpected error occurred')
     } finally {
@@ -85,32 +90,6 @@ export default function LoginPage() {
         </div>
 
         <div className="rounded-lg border bg-card p-8 shadow-sm">
-          {/* Mode Toggle */}
-          <div className="mb-6 flex gap-2 rounded-md bg-muted p-1">
-            <button
-              type="button"
-              onClick={() => setMode('password')}
-              className={`flex-1 rounded-sm px-3 py-2 text-sm font-medium transition-colors ${
-                mode === 'password'
-                  ? 'bg-background shadow-sm'
-                  : 'hover:bg-background/50'
-              }`}
-            >
-              Password
-            </button>
-            <button
-              type="button"
-              onClick={() => setMode('magic-link')}
-              className={`flex-1 rounded-sm px-3 py-2 text-sm font-medium transition-colors ${
-                mode === 'magic-link'
-                  ? 'bg-background shadow-sm'
-                  : 'hover:bg-background/50'
-              }`}
-            >
-              Magic Link
-            </button>
-          </div>
-
           {/* Error Message */}
           {error && (
             <div className="mb-4 rounded-md bg-destructive/10 p-3 text-sm text-destructive">
@@ -118,85 +97,47 @@ export default function LoginPage() {
             </div>
           )}
 
-          {/* Success Message */}
-          {message && (
-            <div className="mb-4 rounded-md bg-primary/10 p-3 text-sm text-primary">
-              {message}
+          <form onSubmit={handleLogin} className="space-y-4">
+            <div className="space-y-2">
+              <Label htmlFor="username">Username</Label>
+              <div className="relative">
+                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground">
+                  @
+                </span>
+                <Input
+                  id="username"
+                  type="text"
+                  placeholder="username"
+                  value={username}
+                  onChange={(e) => setUsername(e.target.value.toLowerCase().replace(/[^a-z0-9_]/g, ''))}
+                  className="pl-8"
+                  required
+                  autoComplete="username"
+                />
+              </div>
             </div>
-          )}
 
-          {/* Password Login Form */}
-          {mode === 'password' && (
-            <form onSubmit={handlePasswordLogin} className="space-y-4">
-              <div className="space-y-2">
-                <Label htmlFor="email">Email</Label>
-                <Input
-                  id="email"
-                  type="email"
-                  placeholder="you@example.com"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  required
-                  autoComplete="email"
-                />
-              </div>
+            <div className="space-y-2">
+              <Label htmlFor="password">Password</Label>
+              <Input
+                id="password"
+                type="password"
+                placeholder="••••••••"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                required
+                autoComplete="current-password"
+              />
+            </div>
 
-              <div className="space-y-2">
-                <Label htmlFor="password">Password</Label>
-                <Input
-                  id="password"
-                  type="password"
-                  placeholder="••••••••"
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  required
-                  autoComplete="current-password"
-                />
-              </div>
-
-              <Button
-                type="submit"
-                className="w-full"
-                disabled={loading}
-              >
-                {loading ? 'Signing in...' : 'Sign in'}
-              </Button>
-            </form>
-          )}
-
-          {/* Magic Link Form */}
-          {mode === 'magic-link' && (
-            <form onSubmit={handleMagicLinkLogin} className="space-y-4">
-              <div className="space-y-2">
-                <Label htmlFor="magic-email">Email</Label>
-                <Input
-                  id="magic-email"
-                  type="email"
-                  placeholder="you@example.com"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  required
-                  autoComplete="email"
-                />
-              </div>
-
-              <Button
-                type="submit"
-                className="w-full"
-                disabled={loading}
-              >
-                {loading ? 'Sending...' : 'Send magic link'}
-              </Button>
-
-              <p className="text-xs text-muted-foreground text-center">
-                We'll send you a link to sign in instantly
-              </p>
-            </form>
-          )}
-
-          <div className="mt-6 text-center text-sm text-muted-foreground">
-            <p>Registration is invite-only</p>
-          </div>
+            <Button
+              type="submit"
+              className="w-full"
+              disabled={loading}
+            >
+              {loading ? 'Signing in...' : 'Sign in'}
+            </Button>
+          </form>
         </div>
       </div>
     </div>
