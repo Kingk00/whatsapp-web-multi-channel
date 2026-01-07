@@ -22,7 +22,7 @@ import { getOrCreateChat, updateChatLastMessage } from '@/lib/chat-helpers'
 // ============================================================================
 
 export interface WebhookEvent {
-  event?: string
+  event?: string | { type: string; event?: string }
   type?: string
   data?: any
   // Whapi event structures vary, so we keep this flexible
