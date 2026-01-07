@@ -16,9 +16,9 @@ export async function POST(
     const { id } = await params
     console.log('[Webhook Config] Starting for channel:', id)
 
-    // Authenticate user and require main_admin + channel access
+    // Authenticate user and require main_admin
     console.log('[Webhook Config] Authenticating user...')
-    await validateApiAuth({ requireMainAdmin: true, channelId: id })
+    await validateApiAuth({ requireMainAdmin: true })
     console.log('[Webhook Config] User authenticated')
 
     const supabase = createServiceRoleClient()
