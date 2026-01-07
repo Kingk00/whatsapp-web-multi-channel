@@ -120,25 +120,37 @@ export async function validateApiAuth(options?: {
   const user = await getCurrentUser()
 
   if (!user) {
-    throw new Response('Unauthorized', { status: 401 })
+    throw new Response(JSON.stringify({ error: 'Unauthorized' }), {
+      status: 401,
+      headers: { 'Content-Type': 'application/json' }
+    })
   }
 
   const profile = await getUserProfile(user.id)
 
   if (!profile) {
-    throw new Response('Profile not found', { status: 404 })
+    throw new Response(JSON.stringify({ error: 'Profile not found' }), {
+      status: 404,
+      headers: { 'Content-Type': 'application/json' }
+    })
   }
 
   // Check main admin requirement
   if (options?.requireMainAdmin && profile.role !== 'main_admin') {
-    throw new Response('Forbidden: Admin access required', { status: 403 })
+    throw new Response(JSON.stringify({ error: 'Forbidden: Admin access required' }), {
+      status: 403,
+      headers: { 'Content-Type': 'application/json' }
+    })
   }
 
   // Check channel access
   if (options?.channelId) {
     const hasAccess = await canAccessChannel(options.channelId)
     if (!hasAccess) {
-      throw new Response('Forbidden: No access to this channel', { status: 403 })
+      throw new Response(JSON.stringify({ error: 'Forbidden: No access to this channel' }), {
+        status: 403,
+        headers: { 'Content-Type': 'application/json' }
+      })
     }
   }
 

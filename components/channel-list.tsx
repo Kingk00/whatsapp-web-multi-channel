@@ -140,8 +140,16 @@ export function ChannelList({ onChannelSelect }: ChannelListProps) {
     try {
       const response = await fetch(`/api/channels/${channelId}/webhook`, {
         method: 'POST',
+        credentials: 'include',
       })
-      const data = await response.json()
+
+      let data: any = {}
+      try {
+        data = await response.json()
+      } catch {
+        // Response wasn't JSON
+        data = { error: `HTTP ${response.status}: ${response.statusText}` }
+      }
 
       if (!response.ok) {
         // Show detailed error message
