@@ -55,6 +55,15 @@ interface Chat {
   }
 }
 
+interface Presence {
+  online: boolean | null
+  last_seen: string | null
+  presence?: string
+  is_typing?: boolean
+  is_recording?: boolean
+  is_group?: boolean
+}
+
 interface ChatViewProps {
   chatId: string
 }
@@ -94,6 +103,19 @@ export function ChatView({ chatId }: ChatViewProps) {
         channel: data.channels?.[0] || null,
       } as Chat
     },
+  })
+
+  // Fetch presence / last seen
+  const { data: presence } = useQuery({
+    queryKey: ['presence', chatId],
+    queryFn: async () => {
+      const response = await fetch(`/api/chats/${chatId}/presence`)
+      if (!response.ok) return null
+      return response.json() as Promise<Presence>
+    },
+    refetchInterval: 30000, // Refresh every 30 seconds
+    staleTime: 10000, // Consider data stale after 10 seconds
+    enabled: !!chat && !chat.is_group, // Only fetch for individual chats
   })
 
   // Fetch messages
@@ -162,7 +184,7 @@ export function ChatView({ chatId }: ChatViewProps) {
   return (
     <div className="flex h-full flex-col">
       {/* Header */}
-      <ChatHeader chat={chat} displayName={displayName} />
+      <ChatHeader chat={chat} displayName={displayName} presence={presence} />
 
       {/* Messages */}
       <div
@@ -215,37 +237,86 @@ export function ChatView({ chatId }: ChatViewProps) {
 function ChatHeader({
   chat,
   displayName,
+  presence,
 }: {
   chat: Chat | undefined
   displayName: string
+  presence: Presence | null | undefined
 }) {
   const { toggleDetailsPanel } = useUIStore()
+
+  // Format last seen time
+  const getLastSeenText = () => {
+    if (!presence) return null
+    if (presence.is_group) return null
+
+    if (presence.is_typing) return 'typing...'
+    if (presence.is_recording) return 'recording audio...'
+    if (presence.online) return 'online'
+
+    if (presence.last_seen) {
+      const lastSeenDate = new Date(presence.last_seen)
+      const now = new Date()
+      const diffMs = now.getTime() - lastSeenDate.getTime()
+      const diffMins = Math.floor(diffMs / 60000)
+      const diffHours = Math.floor(diffMs / 3600000)
+      const diffDays = Math.floor(diffMs / 86400000)
+
+      if (diffMins < 1) return 'last seen just now'
+      if (diffMins < 60) return `last seen ${diffMins} min${diffMins > 1 ? 's' : ''} ago`
+      if (diffHours < 24) return `last seen ${diffHours} hour${diffHours > 1 ? 's' : ''} ago`
+      if (diffDays === 1) return 'last seen yesterday'
+      if (diffDays < 7) return `last seen ${diffDays} days ago`
+
+      // Format as date
+      return `last seen ${lastSeenDate.toLocaleDateString()}`
+    }
+
+    return null
+  }
+
+  const lastSeenText = getLastSeenText()
 
   return (
     <header className="flex h-16 items-center justify-between border-b border-gray-200 bg-gray-50 px-4">
       <div className="flex items-center gap-3">
         {/* Avatar */}
-        {chat?.profile_photo_url ? (
-          <img
-            src={chat.profile_photo_url}
-            alt={displayName}
-            className="h-10 w-10 rounded-full object-cover"
-          />
-        ) : (
-          <div
-            className={cn(
-              'flex h-10 w-10 items-center justify-center rounded-full text-white',
-              chat?.is_group ? 'bg-blue-500' : 'bg-gray-400'
-            )}
-          >
-            {displayName.charAt(0).toUpperCase()}
-          </div>
-        )}
+        <div className="relative">
+          {chat?.profile_photo_url ? (
+            <img
+              src={chat.profile_photo_url}
+              alt={displayName}
+              className="h-10 w-10 rounded-full object-cover"
+            />
+          ) : (
+            <div
+              className={cn(
+                'flex h-10 w-10 items-center justify-center rounded-full text-white',
+                chat?.is_group ? 'bg-blue-500' : 'bg-gray-400'
+              )}
+            >
+              {displayName.charAt(0).toUpperCase()}
+            </div>
+          )}
+          {/* Online indicator */}
+          {presence?.online && (
+            <div className="absolute bottom-0 right-0 h-3 w-3 rounded-full bg-green-500 border-2 border-gray-50" />
+          )}
+        </div>
 
         {/* Info */}
         <div>
           <h2 className="font-medium text-gray-900">{displayName}</h2>
-          {chat?.channel && (
+          {lastSeenText ? (
+            <p className={cn(
+              "text-xs",
+              presence?.online ? "text-green-600" :
+              presence?.is_typing || presence?.is_recording ? "text-green-600" :
+              "text-gray-500"
+            )}>
+              {lastSeenText}
+            </p>
+          ) : chat?.channel && (
             <p
               className="text-xs"
               style={{ color: chat.channel.color || '#10b981' }}
