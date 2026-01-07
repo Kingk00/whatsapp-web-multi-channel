@@ -21,30 +21,11 @@ export default function LoginPage() {
     setError(null)
 
     try {
-      // First, look up the email by username
-      const { data: profile, error: lookupError } = await supabase
-        .from('profiles')
-        .select('user_id')
-        .eq('username', username.toLowerCase())
-        .single()
-
-      if (lookupError || !profile) {
-        setError('Invalid username or password')
-        setLoading(false)
-        return
-      }
-
-      // Get the user's email from auth.users via the admin API
-      // Since we can't access auth.users directly from client,
-      // we'll use a workaround: try to sign in with username as email first,
-      // and if that fails, try to look up by user_id
-
-      // Try signing in with username@workspace.local pattern
-      // Or use a server-side API to look up the email
+      // Look up the email by username (display_name) via API
       const response = await fetch('/api/auth/lookup-email', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ username: username.toLowerCase() }),
+        body: JSON.stringify({ username }),
       })
 
       if (!response.ok) {
@@ -55,7 +36,7 @@ export default function LoginPage() {
 
       const { email } = await response.json()
 
-      // Now sign in with the email
+      // Sign in with the email
       const { data, error: signInError } = await supabase.auth.signInWithPassword({
         email,
         password,
@@ -100,21 +81,15 @@ export default function LoginPage() {
           <form onSubmit={handleLogin} className="space-y-4">
             <div className="space-y-2">
               <Label htmlFor="username">Username</Label>
-              <div className="relative">
-                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground">
-                  @
-                </span>
-                <Input
-                  id="username"
-                  type="text"
-                  placeholder="username"
-                  value={username}
-                  onChange={(e) => setUsername(e.target.value.toLowerCase().replace(/[^a-z0-9_]/g, ''))}
-                  className="pl-8"
-                  required
-                  autoComplete="username"
-                />
-              </div>
+              <Input
+                id="username"
+                type="text"
+                placeholder="admin"
+                value={username}
+                onChange={(e) => setUsername(e.target.value)}
+                required
+                autoComplete="username"
+              />
             </div>
 
             <div className="space-y-2">
