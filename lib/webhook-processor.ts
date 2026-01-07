@@ -186,6 +186,11 @@ async function processSingleMessage(
     const fromMe = messageData.from_me ?? messageData.fromMe ?? false
     const direction = fromMe ? 'outbound' : 'inbound'
 
+    // Try to extract and update channel phone number if not set
+    // For inbound messages, 'to' contains the channel's WhatsApp number
+    // For outbound messages, 'from' contains the channel's WhatsApp number
+    await updateChannelPhoneIfNeeded(supabase, channel, messageData, fromMe)
+
     // Get or create the chat
     const chat = await getOrCreateChat(supabase, channel, waChatId, messageData)
     if (!chat) {
@@ -584,6 +589,87 @@ async function processChannelStatusEvent(
 // ============================================================================
 // Helper Functions
 // ============================================================================
+
+/**
+ * Update channel phone number if not already set
+ * Extracts the channel's WhatsApp number from message data
+ */
+async function updateChannelPhoneIfNeeded(
+  supabase: SupabaseClient,
+  channel: ChannelInfo,
+  messageData: any,
+  fromMe: boolean
+): Promise<void> {
+  try {
+    // First check if channel already has a phone number
+    const { data: existingChannel } = await supabase
+      .from('channels')
+      .select('phone_number, status')
+      .eq('id', channel.id)
+      .single()
+
+    if (existingChannel?.phone_number) {
+      // Already has phone number, skip
+      return
+    }
+
+    // Extract channel's WhatsApp ID
+    // For inbound messages (from_me=false): 'to' is the channel's number
+    // For outbound messages (from_me=true): 'from' is the channel's number
+    let channelWaId: string | null = null
+
+    if (!fromMe && messageData.to) {
+      channelWaId = messageData.to
+    } else if (fromMe && messageData.from) {
+      channelWaId = messageData.from
+    }
+
+    if (!channelWaId) {
+      console.log('[Webhook Processor] Could not extract channel phone number')
+      return
+    }
+
+    // Extract phone number from WhatsApp ID
+    const phoneNumber = extractPhoneFromWaId(channelWaId)
+    if (!phoneNumber) {
+      return
+    }
+
+    console.log('[Webhook Processor] Updating channel phone number:', phoneNumber)
+
+    // Update channel with phone number and set status to active
+    const { error } = await supabase
+      .from('channels')
+      .update({
+        phone_number: phoneNumber,
+        status: 'active',
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', channel.id)
+
+    if (error) {
+      console.error('[Webhook Processor] Failed to update channel phone number:', error)
+    } else {
+      console.log('[Webhook Processor] Channel phone number updated successfully')
+    }
+  } catch (error) {
+    console.error('[Webhook Processor] Error updating channel phone:', error)
+  }
+}
+
+/**
+ * Extract phone number from WhatsApp ID
+ */
+function extractPhoneFromWaId(waId: string): string | null {
+  if (!waId) return null
+  // Remove the @c.us or @s.whatsapp.net suffix
+  const cleaned = waId.replace(/@(c\.us|s\.whatsapp\.net|g\.us)$/, '')
+  // Return as E.164 format (with + prefix)
+  if (cleaned && /^\d+$/.test(cleaned)) {
+    return `+${cleaned}`
+  }
+  return cleaned || null
+}
 
 /**
  * Extract chat ID from message data

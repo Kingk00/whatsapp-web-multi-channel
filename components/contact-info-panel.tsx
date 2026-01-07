@@ -1,6 +1,7 @@
 'use client'
 
-import { useQuery } from '@tanstack/react-query'
+import { useState } from 'react'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { createClient } from '@/lib/supabase/client'
 import { cn } from '@/lib/utils'
 
@@ -52,8 +53,20 @@ interface ContactInfoPanelProps {
 
 export function ContactInfoPanel({ chatId, onClose }: ContactInfoPanelProps) {
   const supabase = createClient()
+  const queryClient = useQueryClient()
+  const [showContactForm, setShowContactForm] = useState(false)
+  const [saving, setSaving] = useState(false)
+  const [formError, setFormError] = useState<string | null>(null)
 
-  const { data: chat, isLoading } = useQuery<ChatDetails>({
+  // Contact form state
+  const [contactForm, setContactForm] = useState({
+    display_name: '',
+    phone_number: '',
+    email: '',
+    tags: '',
+  })
+
+  const { data: chat, isLoading, refetch } = useQuery<ChatDetails>({
     queryKey: ['chat-details', chatId],
     queryFn: async () => {
       const response = await fetch(`/api/chats/${chatId}`)
@@ -70,6 +83,98 @@ export function ContactInfoPanel({ chatId, onClose }: ContactInfoPanelProps) {
     : null
 
   const displayName = chat?.display_name || chat?.phone_number || 'Unknown'
+
+  // Open contact form with pre-filled data
+  const openContactForm = () => {
+    if (chat?.contact) {
+      // Edit existing contact
+      setContactForm({
+        display_name: chat.contact.display_name || '',
+        phone_number: chat.contact.phone_numbers?.[0]?.number || chat.phone_number || '',
+        email: chat.contact.email_addresses?.[0]?.email || '',
+        tags: chat.contact.tags?.join(', ') || '',
+      })
+    } else {
+      // Add new contact
+      setContactForm({
+        display_name: chat?.display_name || '',
+        phone_number: chat?.phone_number || '',
+        email: '',
+        tags: '',
+      })
+    }
+    setFormError(null)
+    setShowContactForm(true)
+  }
+
+  // Save contact (create or update)
+  const saveContact = async () => {
+    if (!contactForm.display_name.trim()) {
+      setFormError('Display name is required')
+      return
+    }
+
+    setSaving(true)
+    setFormError(null)
+
+    try {
+      const phoneNumbers = contactForm.phone_number.trim()
+        ? [{ number: contactForm.phone_number.trim(), type: 'mobile' }]
+        : []
+      const emailAddresses = contactForm.email.trim()
+        ? [{ email: contactForm.email.trim(), type: 'personal' }]
+        : []
+      const tags = contactForm.tags.trim()
+        ? contactForm.tags.split(',').map(t => t.trim()).filter(Boolean)
+        : []
+
+      if (chat?.contact) {
+        // Update existing contact
+        const response = await fetch(`/api/contacts/${chat.contact.id}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            display_name: contactForm.display_name.trim(),
+            phone_numbers: phoneNumbers,
+            email_addresses: emailAddresses,
+            tags,
+          }),
+        })
+
+        if (!response.ok) {
+          const error = await response.json()
+          throw new Error(error.error || 'Failed to update contact')
+        }
+      } else {
+        // Create new contact and link to chat
+        const response = await fetch('/api/contacts', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            display_name: contactForm.display_name.trim(),
+            phone_numbers: phoneNumbers,
+            email_addresses: emailAddresses,
+            tags,
+            link_chat_id: chatId, // Link this contact to the chat
+          }),
+        })
+
+        if (!response.ok) {
+          const error = await response.json()
+          throw new Error(error.error || 'Failed to create contact')
+        }
+      }
+
+      // Refresh chat data
+      await refetch()
+      queryClient.invalidateQueries({ queryKey: ['chats'] })
+      setShowContactForm(false)
+    } catch (error) {
+      setFormError(error instanceof Error ? error.message : 'Failed to save contact')
+    } finally {
+      setSaving(false)
+    }
+  }
 
   if (isLoading) {
     return (
@@ -294,15 +399,103 @@ export function ContactInfoPanel({ chatId, onClose }: ContactInfoPanelProps) {
           </div>
         </div>
 
-        {/* Actions */}
-        {!chat?.contact && (
+        {/* Actions - Add/Edit Contact */}
+        {!showContactForm ? (
           <div className="border-t border-gray-100 px-4 py-4">
             <button
-              onClick={() => window.location.href = `/settings/contacts?link=${chat?.phone_number}`}
+              onClick={openContactForm}
               className="w-full rounded-lg border border-gray-200 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
             >
-              Link to Contact
+              {chat?.contact ? 'Edit Contact' : 'Add Contact'}
             </button>
+          </div>
+        ) : (
+          <div className="border-t border-gray-100 px-4 py-4">
+            <h4 className="mb-3 text-xs font-semibold uppercase text-gray-400">
+              {chat?.contact ? 'Edit Contact' : 'Add Contact'}
+            </h4>
+
+            {formError && (
+              <div className="mb-3 rounded-md bg-red-50 p-2 text-sm text-red-600">
+                {formError}
+              </div>
+            )}
+
+            <div className="space-y-3">
+              {/* Display Name */}
+              <div>
+                <label className="block text-xs font-medium text-gray-600 mb-1">
+                  Name *
+                </label>
+                <input
+                  type="text"
+                  value={contactForm.display_name}
+                  onChange={(e) => setContactForm({ ...contactForm, display_name: e.target.value })}
+                  className="w-full rounded-md border border-gray-200 px-3 py-2 text-sm focus:border-green-500 focus:outline-none focus:ring-1 focus:ring-green-500"
+                  placeholder="Contact name"
+                />
+              </div>
+
+              {/* Phone Number */}
+              <div>
+                <label className="block text-xs font-medium text-gray-600 mb-1">
+                  Phone Number
+                </label>
+                <input
+                  type="tel"
+                  value={contactForm.phone_number}
+                  onChange={(e) => setContactForm({ ...contactForm, phone_number: e.target.value })}
+                  className="w-full rounded-md border border-gray-200 px-3 py-2 text-sm focus:border-green-500 focus:outline-none focus:ring-1 focus:ring-green-500"
+                  placeholder="+1234567890"
+                />
+              </div>
+
+              {/* Email */}
+              <div>
+                <label className="block text-xs font-medium text-gray-600 mb-1">
+                  Email
+                </label>
+                <input
+                  type="email"
+                  value={contactForm.email}
+                  onChange={(e) => setContactForm({ ...contactForm, email: e.target.value })}
+                  className="w-full rounded-md border border-gray-200 px-3 py-2 text-sm focus:border-green-500 focus:outline-none focus:ring-1 focus:ring-green-500"
+                  placeholder="email@example.com"
+                />
+              </div>
+
+              {/* Tags */}
+              <div>
+                <label className="block text-xs font-medium text-gray-600 mb-1">
+                  Tags (comma-separated)
+                </label>
+                <input
+                  type="text"
+                  value={contactForm.tags}
+                  onChange={(e) => setContactForm({ ...contactForm, tags: e.target.value })}
+                  className="w-full rounded-md border border-gray-200 px-3 py-2 text-sm focus:border-green-500 focus:outline-none focus:ring-1 focus:ring-green-500"
+                  placeholder="customer, vip"
+                />
+              </div>
+
+              {/* Buttons */}
+              <div className="flex gap-2 pt-2">
+                <button
+                  onClick={() => setShowContactForm(false)}
+                  className="flex-1 rounded-lg border border-gray-200 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
+                  disabled={saving}
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={saveContact}
+                  disabled={saving}
+                  className="flex-1 rounded-lg bg-green-600 px-4 py-2 text-sm font-medium text-white hover:bg-green-700 disabled:opacity-50"
+                >
+                  {saving ? 'Saving...' : 'Save'}
+                </button>
+              </div>
+            </div>
           </div>
         )}
       </div>

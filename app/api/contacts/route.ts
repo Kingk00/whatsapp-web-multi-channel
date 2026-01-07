@@ -128,7 +128,7 @@ export async function POST(request: NextRequest) {
     }
 
     const body = await request.json()
-    const { display_name, phone_numbers, email_addresses, tags } = body
+    const { display_name, phone_numbers, email_addresses, tags, link_chat_id } = body
 
     if (!display_name?.trim()) {
       return NextResponse.json(
@@ -183,6 +183,20 @@ export async function POST(request: NextRequest) {
 
       if (phoneEntries.length > 0) {
         await supabase.from('contact_phone_lookup').insert(phoneEntries)
+      }
+    }
+
+    // Link contact to chat if requested
+    if (link_chat_id) {
+      const { error: linkError } = await supabase
+        .from('chats')
+        .update({ contact_id: contact.id })
+        .eq('id', link_chat_id)
+        .eq('workspace_id', profile.workspace_id) // Security: only link chats in same workspace
+
+      if (linkError) {
+        console.error('Error linking contact to chat:', linkError)
+        // Don't fail the request, contact was still created
       }
     }
 
