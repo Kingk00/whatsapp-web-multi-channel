@@ -267,21 +267,34 @@ export async function POST(
         const whapiResult = await whapiResponse.json()
         console.log('[Send Message] Whapi response:', JSON.stringify(whapiResult))
 
-        if (whapiResult.sent && whapiResult.message?.id) {
+        // Whapi returns { sent: true, message: { id: "...", ... } } on success
+        // Or can return directly { id: "...", ... } in some cases
+        const waMessageId = whapiResult.message?.id || whapiResult.id
+        const isSent = whapiResult.sent === true || whapiResponse.ok
+
+        if (isSent && waMessageId) {
+          console.log('[Send Message] Message sent successfully, wa_message_id:', waMessageId)
           // Update outbox and message with real WhatsApp message ID
           await serviceClient
             .from('outbox_messages')
-            .update({ status: 'sent', sent_at: new Date().toISOString(), wa_message_id: whapiResult.message.id })
+            .update({ status: 'sent', sent_at: new Date().toISOString(), wa_message_id: waMessageId })
             .eq('id', outboxMessage.id)
 
           if (message) {
             await serviceClient
               .from('messages')
-              .update({ wa_message_id: whapiResult.message.id, status: 'sent' })
+              .update({ wa_message_id: waMessageId, status: 'sent' })
               .eq('id', message.id)
           }
         } else {
           console.error('[Send Message] Whapi send failed:', whapiResult)
+          // Update status to failed
+          if (message) {
+            await serviceClient
+              .from('messages')
+              .update({ status: 'failed' })
+              .eq('id', message.id)
+          }
         }
       } else {
         console.error('[Send Message] No token found for channel:', chat.channel_id)

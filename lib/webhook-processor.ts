@@ -755,11 +755,14 @@ function extractChatId(messageData: any): string | null {
 function extractMessageType(messageData: any): string {
   if (messageData.type) return messageData.type.toLowerCase()
 
-  // Infer from content
+  // Infer from content - order matters (more specific first)
   if (messageData.text || messageData.body) return 'text'
   if (messageData.image) return 'image'
   if (messageData.video) return 'video'
-  if (messageData.audio || messageData.voice || messageData.ptt) return 'audio'
+  // Distinguish voice/ptt from regular audio
+  if (messageData.ptt) return 'ptt'
+  if (messageData.voice) return 'voice'
+  if (messageData.audio) return 'audio'
   if (messageData.document || messageData.file) return 'document'
   if (messageData.sticker) return 'sticker'
   if (messageData.location) return 'location'
@@ -793,6 +796,22 @@ function extractMediaInfo(
   messageData: any,
   messageType: string
 ): { url: string; metadata: Record<string, any> } | null {
+  // Debug logging for media extraction
+  const mediaRelatedKeys = ['media', 'mediaUrl', 'image', 'video', 'audio', 'voice', 'ptt', 'document', 'sticker']
+  const foundKeys = mediaRelatedKeys.filter(key => messageData[key])
+  if (foundKeys.length > 0) {
+    console.log('[Webhook Processor] Media extraction - found keys:', foundKeys)
+    console.log('[Webhook Processor] Media extraction - messageType:', messageType)
+    foundKeys.forEach(key => {
+      const obj = messageData[key]
+      if (typeof obj === 'object') {
+        console.log(`[Webhook Processor] ${key} object:`, JSON.stringify(obj).slice(0, 500))
+      } else {
+        console.log(`[Webhook Processor] ${key} value:`, obj)
+      }
+    })
+  }
+
   // First check for generic media object
   if (messageData.media?.url || messageData.media?.link) {
     return {

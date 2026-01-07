@@ -295,7 +295,8 @@ function DateHeader({ date }: { date: Date }) {
 
 function MessageBubble({ message }: { message: Message }) {
   const isOutbound = message.direction === 'outbound'
-  const hasMedia = message.media_url && ['image', 'video', 'audio', 'document', 'sticker'].includes(message.message_type)
+  // Include voice/ptt messages in media check
+  const hasMedia = message.media_url && ['image', 'video', 'audio', 'voice', 'ptt', 'document', 'sticker'].includes(message.message_type)
 
   return (
     <div
@@ -524,14 +525,30 @@ function MediaContent({ message }: { message: Message }) {
       )
 
     case 'audio':
+    case 'voice':
+    case 'ptt':
       return (
-        <div className="flex items-center gap-2 p-2 min-w-[200px]">
+        <div className="flex items-center gap-3 p-3 min-w-[250px] bg-opacity-50 rounded-lg">
+          {/* Microphone icon for voice messages */}
+          {(message.message_type === 'voice' || message.message_type === 'ptt') && (
+            <div className="flex-shrink-0">
+              <svg className="h-8 w-8 text-green-600" fill="currentColor" viewBox="0 0 24 24">
+                <path d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3z"/>
+                <path d="M17 11c0 2.76-2.24 5-5 5s-5-2.24-5-5H5c0 3.53 2.61 6.43 6 6.92V21h2v-3.08c3.39-.49 6-3.39 6-6.92h-2z"/>
+              </svg>
+            </div>
+          )}
           <audio
             src={displayMediaUrl}
             controls
-            className="w-full h-8"
+            className="flex-1 h-10"
             preload="metadata"
           />
+          {metadata.duration && (
+            <span className="text-xs text-gray-500 flex-shrink-0">
+              {formatDuration(metadata.duration)}
+            </span>
+          )}
         </div>
       )
 
@@ -587,32 +604,39 @@ function MessageStatus({ status }: { status: string | null }) {
   const getStatusIcon = () => {
     switch (status) {
       case 'pending':
+        // Clock icon for pending
         return (
-          <svg className="h-3 w-3 text-gray-400" viewBox="0 0 16 16" fill="currentColor">
-            <circle cx="8" cy="8" r="6" fill="none" stroke="currentColor" strokeWidth="2" />
+          <svg className="h-3.5 w-3.5 text-gray-400" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">
+            <circle cx="8" cy="8" r="6" />
+            <path d="M8 4v4l2.5 1.5" strokeLinecap="round" />
           </svg>
         )
       case 'sent':
+        // Single tick for sent
         return (
-          <svg className="h-3 w-3 text-gray-400" viewBox="0 0 16 16" fill="currentColor">
-            <path d="M10.97 4.97a.75.75 0 0 1 1.071 1.05l-3.992 4.99a.75.75 0 0 1-1.08.02L4.324 8.384a.75.75 0 1 1 1.06-1.06l2.094 2.093 3.473-4.425a.235.235 0 0 1 .02-.022z" />
+          <svg className="h-4 w-4 text-gray-400" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2">
+            <path d="M3 8l3 3 7-7" strokeLinecap="round" strokeLinejoin="round" />
           </svg>
         )
       case 'delivered':
+        // Double tick (gray) for delivered
         return (
-          <svg className="h-3 w-3 text-gray-400" viewBox="0 0 16 16" fill="currentColor">
-            <path d="M12.354 4.354a.5.5 0 0 0-.708-.708L5 10.293 1.854 7.146a.5.5 0 1 0-.708.708l3.5 3.5a.5.5 0 0 0 .708 0l7-7zm-4.208 7-.896-.897.707-.707.543.543 6.646-6.647a.5.5 0 0 1 .708.708l-7 7a.5.5 0 0 1-.708 0z" />
+          <svg className="h-4 w-4 text-gray-400" viewBox="0 0 20 16" fill="none" stroke="currentColor" strokeWidth="2">
+            <path d="M2 8l3 3 6-6" strokeLinecap="round" strokeLinejoin="round" />
+            <path d="M7 8l3 3 7-7" strokeLinecap="round" strokeLinejoin="round" />
           </svg>
         )
       case 'read':
+        // Double tick (blue) for read
         return (
-          <svg className="h-3 w-3 text-blue-500" viewBox="0 0 16 16" fill="currentColor">
-            <path d="M12.354 4.354a.5.5 0 0 0-.708-.708L5 10.293 1.854 7.146a.5.5 0 1 0-.708.708l3.5 3.5a.5.5 0 0 0 .708 0l7-7zm-4.208 7-.896-.897.707-.707.543.543 6.646-6.647a.5.5 0 0 1 .708.708l-7 7a.5.5 0 0 1-.708 0z" />
+          <svg className="h-4 w-4 text-blue-500" viewBox="0 0 20 16" fill="none" stroke="currentColor" strokeWidth="2">
+            <path d="M2 8l3 3 6-6" strokeLinecap="round" strokeLinejoin="round" />
+            <path d="M7 8l3 3 7-7" strokeLinecap="round" strokeLinejoin="round" />
           </svg>
         )
       case 'failed':
         return (
-          <svg className="h-3 w-3 text-red-500" viewBox="0 0 16 16" fill="currentColor">
+          <svg className="h-3.5 w-3.5 text-red-500" viewBox="0 0 16 16" fill="currentColor">
             <path d="M8 15A7 7 0 1 1 8 1a7 7 0 0 1 0 14zm0 1A8 8 0 1 0 8 0a8 8 0 0 0 0 16z" />
             <path d="M7.002 11a1 1 0 1 1 2 0 1 1 0 0 1-2 0zM7.1 4.995a.905.905 0 1 1 1.8 0l-.35 3.507a.552.552 0 0 1-1.1 0L7.1 4.995z" />
           </svg>

@@ -23,6 +23,12 @@ export default function AccountSettingsPage() {
   const [profile, setProfile] = useState<Profile | null>(null)
   const [loading, setLoading] = useState(true)
 
+  // Profile edit form
+  const [editingProfile, setEditingProfile] = useState(false)
+  const [editUsername, setEditUsername] = useState('')
+  const [editDisplayName, setEditDisplayName] = useState('')
+  const [profileSaving, setProfileSaving] = useState(false)
+
   // Password change form
   const [currentPassword, setCurrentPassword] = useState('')
   const [newPassword, setNewPassword] = useState('')
@@ -53,10 +59,55 @@ export default function AccountSettingsPage() {
         .single()
 
       setProfile(profileData)
+      if (profileData) {
+        setEditUsername(profileData.username || '')
+        setEditDisplayName(profileData.display_name || '')
+      }
     } catch (error) {
       console.error('Error loading profile:', error)
     } finally {
       setLoading(false)
+    }
+  }
+
+  const handleProfileSave = async () => {
+    if (!profile) return
+
+    setProfileSaving(true)
+    try {
+      const { error } = await supabase
+        .from('profiles')
+        .update({
+          username: editUsername.trim() || null,
+          display_name: editDisplayName.trim(),
+        })
+        .eq('user_id', profile.user_id)
+
+      if (error) throw error
+
+      setProfile({
+        ...profile,
+        username: editUsername.trim() || null,
+        display_name: editDisplayName.trim(),
+      })
+      setEditingProfile(false)
+      addToast('Profile updated successfully', 'success')
+    } catch (error) {
+      console.error('Error updating profile:', error)
+      addToast('Failed to update profile', 'error')
+    } finally {
+      setProfileSaving(false)
+    }
+  }
+
+  const getRoleBadgeColor = (role: string) => {
+    switch (role) {
+      case 'main_admin':
+        return 'bg-purple-100 text-purple-800'
+      case 'admin':
+        return 'bg-blue-100 text-blue-800'
+      default:
+        return 'bg-gray-100 text-gray-800'
     }
   }
 
@@ -124,21 +175,87 @@ export default function AccountSettingsPage() {
       <main className="max-w-2xl p-8 space-y-8">
         {/* Profile Info */}
         <section className="rounded-lg border bg-card p-6">
-          <h2 className="text-lg font-semibold mb-4">Profile Information</h2>
-          <div className="space-y-4">
-            <div>
-              <Label className="text-muted-foreground">Username</Label>
-              <p className="text-lg font-medium">@{profile?.username || 'Not set'}</p>
-            </div>
-            <div>
-              <Label className="text-muted-foreground">Display Name</Label>
-              <p className="text-lg font-medium">{profile?.display_name || 'Not set'}</p>
-            </div>
-            <div>
-              <Label className="text-muted-foreground">Role</Label>
-              <p className="text-lg font-medium capitalize">{profile?.role?.replace('_', ' ') || 'Agent'}</p>
-            </div>
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="text-lg font-semibold">Profile Information</h2>
+            {!editingProfile && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setEditingProfile(true)}
+              >
+                Edit
+              </Button>
+            )}
           </div>
+
+          {editingProfile ? (
+            <div className="space-y-4">
+              <div className="space-y-2">
+                <Label htmlFor="username">Username</Label>
+                <div className="flex items-center">
+                  <span className="text-gray-500 mr-1">@</span>
+                  <Input
+                    id="username"
+                    value={editUsername}
+                    onChange={(e) => setEditUsername(e.target.value)}
+                    placeholder="username"
+                  />
+                </div>
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="displayName">Display Name</Label>
+                <Input
+                  id="displayName"
+                  value={editDisplayName}
+                  onChange={(e) => setEditDisplayName(e.target.value)}
+                  placeholder="Your name"
+                />
+              </div>
+              <div>
+                <Label className="text-muted-foreground">Role</Label>
+                <div className="mt-1">
+                  <span className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium ${getRoleBadgeColor(profile?.role || 'agent')}`}>
+                    {profile?.role === 'main_admin' ? 'Main Admin' : profile?.role === 'admin' ? 'Admin' : 'Agent'}
+                  </span>
+                </div>
+              </div>
+              <div className="flex gap-2 pt-2">
+                <Button
+                  variant="outline"
+                  onClick={() => {
+                    setEditingProfile(false)
+                    setEditUsername(profile?.username || '')
+                    setEditDisplayName(profile?.display_name || '')
+                  }}
+                  disabled={profileSaving}
+                >
+                  Cancel
+                </Button>
+                <Button onClick={handleProfileSave} disabled={profileSaving}>
+                  {profileSaving ? 'Saving...' : 'Save Changes'}
+                </Button>
+              </div>
+            </div>
+          ) : (
+            <div className="space-y-4">
+              <div>
+                <Label className="text-muted-foreground">Username</Label>
+                <p className="text-lg font-medium">@{profile?.username || 'Not set'}</p>
+              </div>
+              <div>
+                <Label className="text-muted-foreground">Display Name</Label>
+                <p className="text-lg font-medium">{profile?.display_name || 'Not set'}</p>
+              </div>
+              <div>
+                <Label className="text-muted-foreground">Role</Label>
+                <div className="mt-1">
+                  <span className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium ${getRoleBadgeColor(profile?.role || 'agent')}`}>
+                    {profile?.role === 'main_admin' ? 'Main Admin' : profile?.role === 'admin' ? 'Admin' : 'Agent'}
+                  </span>
+                </div>
+              </div>
+            </div>
+          )}
         </section>
 
         {/* Password Change */}
