@@ -14,13 +14,17 @@ export async function POST(
 ) {
   try {
     const { id } = await params
+    console.log('[Webhook Config] Starting for channel:', id)
 
     // Authenticate user and require main_admin + channel access
+    console.log('[Webhook Config] Authenticating user...')
     await validateApiAuth({ requireMainAdmin: true, channelId: id })
+    console.log('[Webhook Config] User authenticated')
 
     const supabase = createServiceRoleClient()
 
     // Get channel details including webhook_secret
+    console.log('[Webhook Config] Fetching channel details...')
     const { data: channel, error: channelError } = await supabase
       .from('channels')
       .select('id, name, webhook_secret, workspace_id')
@@ -28,14 +32,17 @@ export async function POST(
       .single()
 
     if (channelError || !channel) {
+      console.error('[Webhook Config] Channel not found:', channelError)
       return NextResponse.json(
         { error: 'Channel not found' },
         { status: 404 }
       )
     }
+    console.log('[Webhook Config] Channel found:', channel.name)
 
     if (!channel.webhook_secret) {
       // Generate a new webhook secret if none exists
+      console.log('[Webhook Config] Generating new webhook secret...')
       const newSecret = crypto.randomUUID()
       await supabase
         .from('channels')
@@ -45,6 +52,7 @@ export async function POST(
     }
 
     // Get the Whapi token
+    console.log('[Webhook Config] Fetching Whapi token...')
     const { data: tokenData, error: tokenError } = await supabase
       .from('channel_tokens')
       .select('encrypted_token')
@@ -53,14 +61,17 @@ export async function POST(
       .single()
 
     if (tokenError || !tokenData) {
+      console.error('[Webhook Config] Token not found:', tokenError)
       return NextResponse.json(
         { error: 'Channel token not found' },
         { status: 404 }
       )
     }
+    console.log('[Webhook Config] Token found, decrypting...')
 
     // Decrypt the token
     const whapiToken = decrypt(tokenData.encrypted_token)
+    console.log('[Webhook Config] Token decrypted successfully')
 
     // Build webhook URL
     const baseUrl = request.headers.get('origin') || request.headers.get('host')
@@ -122,11 +133,15 @@ export async function POST(
     })
   } catch (error) {
     console.error('[Webhook Config] Error:', error)
+    console.error('[Webhook Config] Error stack:', error instanceof Error ? error.stack : 'No stack')
     if (error instanceof Response) {
       return error
     }
     return NextResponse.json(
-      { error: 'An unexpected error occurred' },
+      {
+        error: 'An unexpected error occurred',
+        details: error instanceof Error ? error.message : 'Unknown error'
+      },
       { status: 500 }
     )
   }
