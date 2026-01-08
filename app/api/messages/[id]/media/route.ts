@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createClient, createServiceRoleClient } from '@/lib/supabase/server'
 import { decrypt } from '@/lib/encryption'
 
+export const dynamic = 'force-dynamic'
+
 /**
  * GET /api/messages/[id]/media
  *

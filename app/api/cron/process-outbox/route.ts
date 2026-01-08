@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createServiceRoleClient } from '@/lib/supabase/server'
 
+export const dynamic = 'force-dynamic'
+
 // Simple Whapi send function (matches bloe-engine approach)
 async function sendWhapiMessage(token: string, type: string, payload: any) {
   const endpoint = type === 'text'
