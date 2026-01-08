@@ -9,7 +9,7 @@ const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID
 const GOOGLE_CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET
 const GOOGLE_REDIRECT_URI = process.env.GOOGLE_REDIRECT_URI ||
   (process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000') + '/api/contacts/import/google/callback'
-const ENCRYPTION_KEY = process.env.TOKEN_ENCRYPTION_KEY
+const ENCRYPTION_KEY = process.env.TOKEN_ENCRYPTION_KEY || process.env.ENCRYPTION_KEY
 
 interface GoogleTokenResponse {
   access_token: string
