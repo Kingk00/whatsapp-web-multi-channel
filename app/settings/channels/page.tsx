@@ -6,11 +6,25 @@ import { createClient } from '@/lib/supabase/client'
 import { Button } from '@/components/ui/button'
 import { ChannelList } from '@/components/channel-list'
 import { AddChannelDialog } from '@/components/add-channel-dialog'
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+
+interface Channel {
+  id: string
+  name: string
+  phone_number: string | null
+}
+
+interface SyncSettings {
+  sync_channel_id: string | null
+  last_synced_at: string | null
+}
 
 export default function ChannelSettingsPage() {
   const router = useRouter()
   const supabase = createClient()
+  const queryClient = useQueryClient()
   const [isMainAdmin, setIsMainAdmin] = useState(false)
+  const [isAdmin, setIsAdmin] = useState(false)
   const [loading, setLoading] = useState(true)
   const [showAddDialog, setShowAddDialog] = useState(false)
   const [refreshKey, setRefreshKey] = useState(0)
@@ -40,6 +54,7 @@ export default function ChannelSettingsPage() {
         .single()
 
       setIsMainAdmin(profile?.role === 'main_admin')
+      setIsAdmin(['main_admin', 'admin'].includes(profile?.role || ''))
     } catch (error) {
       // Error checking user role - redirect to login
     } finally {
@@ -51,6 +66,64 @@ export default function ChannelSettingsPage() {
     // Refresh the channel list by incrementing the key
     setRefreshKey((prev) => prev + 1)
   }
+
+  // Fetch channels for sync dropdown
+  const { data: channels } = useQuery({
+    queryKey: ['channels'],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('channels')
+        .select('id, name, phone_number')
+        .order('name')
+      if (error) throw error
+      return data as Channel[]
+    },
+    enabled: !loading,
+  })
+
+  // Fetch sync settings
+  const { data: syncSettings, isLoading: syncLoading } = useQuery({
+    queryKey: ['workspace-sync-settings'],
+    queryFn: async () => {
+      const response = await fetch('/api/workspaces/sync-settings')
+      if (!response.ok) throw new Error('Failed to fetch sync settings')
+      const data = await response.json()
+      return data.sync_settings as SyncSettings
+    },
+    enabled: !loading && isAdmin,
+  })
+
+  // Update sync channel mutation
+  const updateSyncChannel = useMutation({
+    mutationFn: async (channelId: string | null) => {
+      const response = await fetch('/api/workspaces/sync-settings', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sync_channel_id: channelId }),
+      })
+      if (!response.ok) throw new Error('Failed to update sync settings')
+      return response.json()
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['workspace-sync-settings'] })
+    },
+  })
+
+  // Sync contacts mutation
+  const [syncResult, setSyncResult] = useState<{ created: number; updated: number; skipped: number } | null>(null)
+  const syncContacts = useMutation({
+    mutationFn: async (channelId: string) => {
+      const response = await fetch(`/api/channels/${channelId}/whapi-contacts/sync`, {
+        method: 'POST',
+      })
+      if (!response.ok) throw new Error('Failed to sync contacts')
+      return response.json()
+    },
+    onSuccess: (data) => {
+      setSyncResult(data.result)
+      queryClient.invalidateQueries({ queryKey: ['workspace-sync-settings'] })
+    },
+  })
 
   if (loading) {
     return (
@@ -87,6 +160,82 @@ export default function ChannelSettingsPage() {
       <div className="p-8">
         <div className="max-w-4xl">
           <ChannelList key={refreshKey} />
+
+          {/* WhatsApp Contacts Sync Section */}
+          {isAdmin && (
+            <div className="mt-8 border-t pt-8">
+              <h2 className="text-lg font-semibold text-gray-900 mb-2">
+                WhatsApp Contacts Sync
+              </h2>
+              <p className="text-sm text-gray-500 mb-4">
+                Sync contacts from WhatsApp to your workspace. Choose a channel to use for syncing contacts.
+                All contacts will be shared across all channels in your workspace.
+              </p>
+
+              <div className="space-y-4 bg-gray-50 rounded-lg p-4">
+                {/* Sync Channel Selector */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Sync Channel
+                  </label>
+                  <select
+                    value={syncSettings?.sync_channel_id || ''}
+                    onChange={(e) => updateSyncChannel.mutate(e.target.value || null)}
+                    disabled={updateSyncChannel.isPending || syncLoading}
+                    className="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-green-500 focus:outline-none focus:ring-1 focus:ring-green-500 disabled:bg-gray-100"
+                  >
+                    <option value="">None (Sync disabled)</option>
+                    {channels?.map((channel) => (
+                      <option key={channel.id} value={channel.id}>
+                        {channel.name} {channel.phone_number ? `(${channel.phone_number})` : ''}
+                      </option>
+                    ))}
+                  </select>
+                  <p className="mt-1 text-xs text-gray-500">
+                    Contacts will be synced from this channel&apos;s WhatsApp. New contacts you create will also be pushed to this channel.
+                  </p>
+                </div>
+
+                {/* Last Synced */}
+                {syncSettings?.last_synced_at && (
+                  <p className="text-sm text-gray-600">
+                    Last synced: {new Date(syncSettings.last_synced_at).toLocaleString()}
+                  </p>
+                )}
+
+                {/* Sync Button */}
+                {syncSettings?.sync_channel_id && (
+                  <div className="flex items-center gap-4">
+                    <Button
+                      onClick={() => syncContacts.mutate(syncSettings.sync_channel_id!)}
+                      disabled={syncContacts.isPending}
+                      variant="outline"
+                    >
+                      {syncContacts.isPending ? 'Syncing...' : 'Sync Now'}
+                    </Button>
+
+                    {/* Sync Result */}
+                    {syncResult && (
+                      <div className="text-sm text-gray-600">
+                        <span className="text-green-600 font-medium">{syncResult.created} created</span>
+                        {' / '}
+                        <span className="text-blue-600 font-medium">{syncResult.updated} updated</span>
+                        {' / '}
+                        <span className="text-gray-500">{syncResult.skipped} skipped</span>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* Error */}
+                {(updateSyncChannel.isError || syncContacts.isError) && (
+                  <p className="text-sm text-red-600">
+                    {updateSyncChannel.error?.message || syncContacts.error?.message || 'An error occurred'}
+                  </p>
+                )}
+              </div>
+            </div>
+          )}
         </div>
       </div>
 

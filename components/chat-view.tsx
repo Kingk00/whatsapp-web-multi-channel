@@ -18,6 +18,7 @@ import { formatMessageTime, formatMessageDateHeader, isSameDay } from '@/lib/dat
 import { cn } from '@/lib/utils'
 import { useToast } from '@/components/ui/toast'
 import { MessagesSkeleton, ChatHeaderSkeleton } from '@/components/ui/skeleton'
+import { getDisplayName } from '@/lib/chat-helpers'
 
 interface Message {
   id: string
@@ -45,6 +46,7 @@ interface Message {
 interface Chat {
   id: string
   display_name: string | null
+  wa_display_name?: string | null
   phone_number: string | null
   profile_photo_url: string | null
   is_group: boolean
@@ -53,6 +55,10 @@ interface Chat {
     name: string
     color: string | null
   }
+  contact?: {
+    id: string
+    display_name: string
+  } | null
 }
 
 interface Presence {
@@ -85,6 +91,7 @@ export function ChatView({ chatId, onBack }: ChatViewProps) {
           `
           id,
           display_name,
+          wa_display_name,
           phone_number,
           profile_photo_url,
           is_group,
@@ -92,6 +99,10 @@ export function ChatView({ chatId, onBack }: ChatViewProps) {
             id,
             name,
             color
+          ),
+          contacts (
+            id,
+            display_name
           )
         `
         )
@@ -103,9 +114,14 @@ export function ChatView({ chatId, onBack }: ChatViewProps) {
       const channelData = Array.isArray(data.channels)
         ? data.channels[0]
         : data.channels
+      // Handle contact relation (can be null if not linked)
+      const contactData = Array.isArray(data.contacts)
+        ? data.contacts[0]
+        : data.contacts
       return {
         ...data,
         channel: channelData || null,
+        contact: contactData || null,
       } as Chat
     },
   })
@@ -184,7 +200,7 @@ export function ChatView({ chatId, onBack }: ChatViewProps) {
     }
   }, [chatId, supabase, queryClient])
 
-  const displayName = chat?.display_name || chat?.phone_number || 'Loading...'
+  const displayName = chat ? getDisplayName(chat) : 'Loading...'
 
   return (
     <div className="flex h-full flex-col">

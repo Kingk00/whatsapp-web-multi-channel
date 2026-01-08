@@ -274,6 +274,7 @@ function ContactsSettingsContent() {
             <option value="manual">Manual</option>
             <option value="csv_import">CSV Import</option>
             <option value="google">Google</option>
+            <option value="whapi_sync">WhatsApp</option>
           </select>
         </div>
 
@@ -410,26 +411,28 @@ function ContactsSettingsContent() {
 }
 
 function SourceBadge({ source }: { source: string }) {
-  const colors = {
+  const colors: Record<string, string> = {
     manual: 'bg-blue-100 text-blue-700',
     csv_import: 'bg-purple-100 text-purple-700',
     google: 'bg-red-100 text-red-700',
+    whapi_sync: 'bg-green-100 text-green-700',
   }
 
-  const labels = {
+  const labels: Record<string, string> = {
     manual: 'Manual',
     csv_import: 'CSV',
     google: 'Google',
+    whapi_sync: 'WhatsApp',
   }
 
   return (
     <span
       className={cn(
         'rounded-full px-2 py-1 text-xs font-medium',
-        colors[source as keyof typeof colors] || 'bg-gray-100 text-gray-700'
+        colors[source] || 'bg-gray-100 text-gray-700'
       )}
     >
-      {labels[source as keyof typeof labels] || source}
+      {labels[source] || source}
     </span>
   )
 }

@@ -51,6 +51,30 @@ export interface WhapiError {
   code?: string
 }
 
+// Contact types
+export interface WhapiContact {
+  id: string
+  name: string
+  type?: string
+  // Additional fields that may be returned by Whapi
+  [key: string]: any
+}
+
+export interface WhapiContactsResponse {
+  contacts: WhapiContact[]
+  count?: number
+  total?: number
+}
+
+export interface CreateContactRequest {
+  phone: string
+  name: string
+}
+
+export interface UpdateContactRequest {
+  name: string
+}
+
 // ============================================================================
 // Client Class
 // ============================================================================
@@ -237,6 +261,54 @@ export class WhapiClient {
       `/messages/list?chatId=${chatId}&limit=${limit}`
     )
     return response.messages || []
+  }
+
+  // ==========================================================================
+  // Contact Methods
+  // ==========================================================================
+
+  /**
+   * Get all contacts from WhatsApp
+   */
+  async getContacts(count = 1000, offset = 0): Promise<WhapiContact[]> {
+    const response = await this.request<WhapiContactsResponse>(
+      `/contacts?count=${count}&offset=${offset}`
+    )
+    return response.contacts || []
+  }
+
+  /**
+   * Add a new contact to WhatsApp
+   */
+  async createContact(data: CreateContactRequest): Promise<WhapiContact> {
+    return this.request<WhapiContact>('/contacts', {
+      method: 'PUT',
+      body: JSON.stringify({
+        phone: data.phone,
+        name: data.name,
+      }),
+    })
+  }
+
+  /**
+   * Update a contact's name in WhatsApp
+   */
+  async updateContact(contactId: string, data: UpdateContactRequest): Promise<WhapiContact> {
+    return this.request<WhapiContact>(`/contacts/${contactId}`, {
+      method: 'PATCH',
+      body: JSON.stringify({
+        name: data.name,
+      }),
+    })
+  }
+
+  /**
+   * Delete a contact from WhatsApp
+   */
+  async deleteContact(contactId: string): Promise<{ success: boolean }> {
+    return this.request<{ success: boolean }>(`/contacts/${contactId}`, {
+      method: 'DELETE',
+    })
   }
 }
 

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createClient } from '@/lib/supabase/server'
+import { createClient, createServiceRoleClient } from '@/lib/supabase/server'
 import { createHash } from 'crypto'
+import { pushNewContactToWhapi } from '@/lib/whapi-contacts-sync'
 
 /**
  * GET /api/contacts
@@ -199,6 +200,34 @@ export async function POST(request: NextRequest) {
         // Don't fail the request, contact was still created
       }
     }
+
+    // Push to Whapi if sync channel is configured (async, don't block)
+    pushNewContactToWhapi(
+      {
+        id: contact.id,
+        workspace_id: profile.workspace_id,
+        display_name: contact.display_name,
+        phone_numbers: contact.phone_numbers,
+        whapi_contact_id: null,
+        whapi_synced_at: null,
+        source: 'manual',
+      },
+      profile.workspace_id
+    ).then(async (whapiContactId) => {
+      if (whapiContactId) {
+        // Update contact with Whapi ID
+        const serviceClient = createServiceRoleClient()
+        await serviceClient
+          .from('contacts')
+          .update({
+            whapi_contact_id: whapiContactId,
+            whapi_synced_at: new Date().toISOString(),
+          })
+          .eq('id', contact.id)
+      }
+    }).catch((err) => {
+      console.error('Failed to push contact to Whapi:', err)
+    })
 
     return NextResponse.json({ contact }, { status: 201 })
   } catch (error) {
