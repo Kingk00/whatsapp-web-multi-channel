@@ -444,6 +444,45 @@ function MediaContent({ message }: { message: Message }) {
     error: string | null
   }>({ loading: false, viewed: false, mediaUrl: null, error: null })
 
+  // State for lazy loading media that wasn't fetched initially
+  const [lazyMediaState, setLazyMediaState] = useState<{
+    loading: boolean
+    mediaUrl: string | null
+    error: string | null
+  }>({ loading: false, mediaUrl: null, error: null })
+
+  // Handle lazy loading media for messages without media_url
+  const handleLoadMedia = async () => {
+    if (lazyMediaState.loading) return
+
+    setLazyMediaState({ loading: true, mediaUrl: null, error: null })
+
+    try {
+      const response = await fetch(`/api/messages/${message.id}/media`)
+      const data = await response.json()
+
+      if (data.success && data.media_url) {
+        setLazyMediaState({
+          loading: false,
+          mediaUrl: data.media_url,
+          error: null,
+        })
+      } else {
+        setLazyMediaState({
+          loading: false,
+          mediaUrl: null,
+          error: data.error || 'Could not load media',
+        })
+      }
+    } catch (error) {
+      setLazyMediaState({
+        loading: false,
+        mediaUrl: null,
+        error: 'Failed to load media',
+      })
+    }
+  }
+
   // Handle view-once inbound messages
   const handleViewOnceClick = async () => {
     if (viewOnceState.loading || viewOnceState.viewed) return
@@ -528,9 +567,65 @@ function MediaContent({ message }: { message: Message }) {
     )
   }
 
-  // Get the media URL to display (use view-once URL if available)
-  const displayMediaUrl = viewOnceState.mediaUrl || message.media_url
-  if (!displayMediaUrl) return null
+  // Get the media URL to display (use lazy-loaded URL, view-once URL, or original)
+  const displayMediaUrl = lazyMediaState.mediaUrl || viewOnceState.mediaUrl || message.media_url
+
+  // If no media URL, show a "Load media" button
+  if (!displayMediaUrl) {
+    const mediaTypeLabels: Record<string, string> = {
+      image: 'Image',
+      video: 'Video',
+      audio: 'Audio',
+      voice: 'Voice message',
+      ptt: 'Voice message',
+      document: 'Document',
+      sticker: 'Sticker',
+    }
+    const label = mediaTypeLabels[message.message_type] || 'Media'
+
+    return (
+      <button
+        onClick={handleLoadMedia}
+        disabled={lazyMediaState.loading}
+        className="flex flex-col items-center justify-center bg-gray-100 rounded-lg p-4 min-h-[100px] min-w-[180px] hover:bg-gray-200 transition-colors cursor-pointer border border-gray-200"
+      >
+        {lazyMediaState.loading ? (
+          <div className="h-8 w-8 animate-spin rounded-full border-2 border-green-500 border-t-transparent mb-2" />
+        ) : lazyMediaState.error ? (
+          <>
+            <svg className="h-8 w-8 text-red-400 mb-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+            </svg>
+            <span className="text-xs text-red-500">{lazyMediaState.error}</span>
+            <span className="text-xs text-gray-400 mt-1">Tap to retry</span>
+          </>
+        ) : (
+          <>
+            {message.message_type === 'image' || message.message_type === 'sticker' ? (
+              <svg className="h-8 w-8 text-gray-400 mb-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+              </svg>
+            ) : message.message_type === 'video' ? (
+              <svg className="h-8 w-8 text-gray-400 mb-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" />
+              </svg>
+            ) : message.message_type === 'voice' || message.message_type === 'ptt' || message.message_type === 'audio' ? (
+              <svg className="h-8 w-8 text-gray-400 mb-2" fill="currentColor" viewBox="0 0 24 24">
+                <path d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3z"/>
+                <path d="M17 11c0 2.76-2.24 5-5 5s-5-2.24-5-5H5c0 3.53 2.61 6.43 6 6.92V21h2v-3.08c3.39-.49 6-3.39 6-6.92h-2z"/>
+              </svg>
+            ) : (
+              <svg className="h-8 w-8 text-gray-400 mb-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z" />
+              </svg>
+            )}
+            <span className="text-sm text-gray-500">{label}</span>
+            <span className="text-xs text-green-600 mt-1">Tap to load</span>
+          </>
+        )}
+      </button>
+    )
+  }
 
   const metadata = message.media_metadata || {}
 
@@ -831,10 +926,35 @@ function MessageComposer({
       }
       return response.json()
     },
-    onSuccess: () => {
+    onSuccess: (data) => {
       setText('')
       clearDraft(chatId)
-      queryClient.invalidateQueries({ queryKey: queryKeys.messages.list(chatId) })
+
+      // Update the message in cache with the correct status from API response
+      if (data.message) {
+        queryClient.setQueryData(
+          queryKeys.messages.list(chatId),
+          (old: { messages: Message[]; nextCursor?: string } | undefined) => {
+            if (!old?.messages) return old
+
+            // Check if message already exists (from realtime INSERT)
+            const existingIndex = old.messages.findIndex(
+              (m) => m.id === data.message.id || m.wa_message_id === data.message.wa_message_id
+            )
+
+            if (existingIndex >= 0) {
+              // Update existing message with correct status
+              const newMessages = [...old.messages]
+              newMessages[existingIndex] = { ...newMessages[existingIndex], ...data.message }
+              return { ...old, messages: newMessages }
+            } else {
+              // Add new message to the end
+              return { ...old, messages: [...old.messages, data.message] }
+            }
+          }
+        )
+      }
+
       queryClient.invalidateQueries({ queryKey: queryKeys.chats.all })
     },
     onError: (error: Error) => {
@@ -862,11 +982,36 @@ function MessageComposer({
       }
       return response.json()
     },
-    onSuccess: () => {
+    onSuccess: (data) => {
       setText('')
       clearFile()
       clearDraft(chatId)
-      queryClient.invalidateQueries({ queryKey: queryKeys.messages.list(chatId) })
+
+      // Update the message in cache with the correct status from API response
+      if (data.message) {
+        queryClient.setQueryData(
+          queryKeys.messages.list(chatId),
+          (old: { messages: Message[]; nextCursor?: string } | undefined) => {
+            if (!old?.messages) return old
+
+            // Check if message already exists (from realtime INSERT)
+            const existingIndex = old.messages.findIndex(
+              (m) => m.id === data.message.id || m.wa_message_id === data.message.wa_message_id
+            )
+
+            if (existingIndex >= 0) {
+              // Update existing message with correct status
+              const newMessages = [...old.messages]
+              newMessages[existingIndex] = { ...newMessages[existingIndex], ...data.message }
+              return { ...old, messages: newMessages }
+            } else {
+              // Add new message to the end
+              return { ...old, messages: [...old.messages, data.message] }
+            }
+          }
+        )
+      }
+
       queryClient.invalidateQueries({ queryKey: queryKeys.chats.all })
       addToast('Media sent successfully', 'success')
     },

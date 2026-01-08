@@ -209,9 +209,11 @@ async function processSingleMessage(
 
     // Extract media info if present - handle various Whapi formats
     // Also fetch from Whapi if link not present but media ID is
+    // As a last resort, downloads and stores media in Supabase Storage
     const mediaInfo = await extractMediaInfoWithFetch(supabase, channel.id, messageData, messageType)
     const mediaUrl = mediaInfo?.url || null
     const mediaMetadata = mediaInfo?.metadata || null
+    const storagePath = mediaInfo?.storagePath || null
 
     // Extract sender info
     const senderWaId = messageData.from || messageData.sender?.id
@@ -227,7 +229,7 @@ async function processSingleMessage(
       : new Date().toISOString()
 
     // Prepare message record for upsert
-    const messageRecord = {
+    const messageRecord: Record<string, any> = {
       workspace_id: channel.workspace_id,
       channel_id: channel.id,
       chat_id: chat.id,
@@ -242,6 +244,11 @@ async function processSingleMessage(
       sender_wa_id: senderWaId,
       sender_name: senderName,
       created_at: timestamp,
+    }
+
+    // Add storage_path if media was stored in Supabase Storage
+    if (storagePath) {
+      messageRecord.storage_path = storagePath
     }
 
     // Upsert message using (channel_id, wa_message_id) constraint
@@ -792,13 +799,14 @@ function extractTextContent(messageData: any): string | null {
 /**
  * Extract media information from message data with Whapi API fallback
  * If link is not present but media ID is, fetches from Whapi
+ * As a last resort, downloads the media and stores in Supabase Storage
  */
 async function extractMediaInfoWithFetch(
   supabase: SupabaseClient,
   channelId: string,
   messageData: any,
   messageType: string
-): Promise<{ url: string; metadata: Record<string, any> } | null> {
+): Promise<{ url: string; metadata: Record<string, any>; storagePath?: string } | null> {
   // First try direct extraction
   const directMedia = extractMediaInfo(messageData, messageType)
   if (directMedia?.url) {
@@ -817,18 +825,20 @@ async function extractMediaInfoWithFetch(
     messageData.sticker
 
   const mediaId = mediaObject?.id
-  if (!mediaId) {
-    console.log('[Webhook Processor] No media ID found, cannot fetch')
+  const waMessageId = messageData.id
+
+  if (!mediaId && !waMessageId) {
+    console.log('[Webhook Processor] No media ID or message ID found, cannot fetch')
     return null
   }
 
-  console.log('[Webhook Processor] Media ID found, fetching from Whapi:', mediaId)
+  console.log('[Webhook Processor] Attempting to fetch media. Media ID:', mediaId, 'Message ID:', waMessageId)
 
   try {
     // Import decrypt function
     const { decrypt } = await import('@/lib/encryption')
 
-    // Get the Whapi token for this channel
+    // Get the Whapi token and channel info for this channel
     const { data: tokenData } = await supabase
       .from('channel_tokens')
       .select('encrypted_token')
@@ -843,8 +853,50 @@ async function extractMediaInfoWithFetch(
 
     const whapiToken = decrypt(tokenData.encrypted_token)
 
-    // Fetch media URL from Whapi
-    // According to Whapi docs, use GET /media/{mediaId} to get the media URL
+    // Strategy 1: Try /media/{mediaId} endpoint
+    if (mediaId) {
+      const mediaResult = await tryFetchMediaInfo(whapiToken, mediaId, mediaObject)
+      if (mediaResult) return mediaResult
+    }
+
+    // Strategy 2: Try /messages/{messageId} endpoint to get full message with media
+    if (waMessageId) {
+      console.log('[Webhook Processor] Trying /messages endpoint for:', waMessageId)
+      const messageResult = await tryFetchMessageWithMedia(whapiToken, waMessageId, messageType)
+      if (messageResult) return messageResult
+    }
+
+    // Strategy 3: Download media directly and upload to Supabase Storage
+    if (mediaId) {
+      console.log('[Webhook Processor] Attempting direct media download for:', mediaId)
+      const downloadResult = await downloadAndStoreMedia(
+        supabase,
+        whapiToken,
+        channelId,
+        mediaId,
+        messageType,
+        mediaObject
+      )
+      if (downloadResult) return downloadResult
+    }
+
+    console.log('[Webhook Processor] All media fetch strategies failed')
+    return null
+  } catch (error) {
+    console.error('[Webhook Processor] Error fetching media from Whapi:', error)
+    return null
+  }
+}
+
+/**
+ * Try to fetch media info from /media/{mediaId} endpoint
+ */
+async function tryFetchMediaInfo(
+  whapiToken: string,
+  mediaId: string,
+  mediaObject: any
+): Promise<{ url: string; metadata: Record<string, any> } | null> {
+  try {
     const response = await fetch(`https://gate.whapi.cloud/media/${mediaId}`, {
       method: 'GET',
       headers: {
@@ -854,34 +906,20 @@ async function extractMediaInfoWithFetch(
     })
 
     if (!response.ok) {
-      console.error('[Webhook Processor] Failed to fetch media from Whapi:', response.status)
-      // Try alternative endpoint: /media/{mediaId}/download
-      const downloadResponse = await fetch(`https://gate.whapi.cloud/media/${mediaId}/download`, {
-        method: 'GET',
-        headers: {
-          'Authorization': `Bearer ${whapiToken}`,
-        },
-      })
-
-      if (downloadResponse.ok) {
-        // This endpoint returns the actual file, get the URL from headers or construct it
-        const contentType = downloadResponse.headers.get('content-type')
-        // For direct download, we need to save the file or use a different approach
-        // For now, let's try the link endpoint
-        console.log('[Webhook Processor] Download endpoint returned content-type:', contentType)
-      }
+      console.log('[Webhook Processor] /media endpoint failed:', response.status)
       return null
     }
 
     const mediaData = await response.json()
-    console.log('[Webhook Processor] Whapi media response:', JSON.stringify(mediaData).slice(0, 500))
+    console.log('[Webhook Processor] /media response:', JSON.stringify(mediaData).slice(0, 500))
 
-    if (mediaData.link || mediaData.url) {
+    const url = mediaData.link || mediaData.url || mediaData.file?.link || mediaData.file?.url
+    if (url) {
       return {
-        url: mediaData.link || mediaData.url,
+        url,
         metadata: {
-          mime_type: mediaData.mime_type || mediaObject?.mime_type,
-          size: mediaData.file_size || mediaObject?.file_size,
+          mime_type: mediaData.mime_type || mediaData.mimetype || mediaObject?.mime_type,
+          size: mediaData.file_size || mediaData.size || mediaObject?.file_size,
           filename: mediaData.filename || mediaObject?.filename,
           width: mediaData.width || mediaObject?.width,
           height: mediaData.height || mediaObject?.height,
@@ -891,12 +929,184 @@ async function extractMediaInfoWithFetch(
       }
     }
 
-    console.log('[Webhook Processor] No link in Whapi media response')
     return null
   } catch (error) {
-    console.error('[Webhook Processor] Error fetching media from Whapi:', error)
+    console.error('[Webhook Processor] Error in tryFetchMediaInfo:', error)
     return null
   }
+}
+
+/**
+ * Try to fetch full message to get media with link
+ */
+async function tryFetchMessageWithMedia(
+  whapiToken: string,
+  waMessageId: string,
+  messageType: string
+): Promise<{ url: string; metadata: Record<string, any> } | null> {
+  try {
+    const response = await fetch(`https://gate.whapi.cloud/messages/${waMessageId}`, {
+      method: 'GET',
+      headers: {
+        'Authorization': `Bearer ${whapiToken}`,
+        'Content-Type': 'application/json',
+      },
+    })
+
+    if (!response.ok) {
+      console.log('[Webhook Processor] /messages endpoint failed:', response.status)
+      return null
+    }
+
+    const messageData = await response.json()
+    console.log('[Webhook Processor] /messages response keys:', Object.keys(messageData))
+
+    // Try to extract media info from the full message
+    const mediaInfo = extractMediaInfo(messageData, messageType)
+    if (mediaInfo?.url) {
+      console.log('[Webhook Processor] Found media URL from /messages endpoint')
+      return mediaInfo
+    }
+
+    return null
+  } catch (error) {
+    console.error('[Webhook Processor] Error in tryFetchMessageWithMedia:', error)
+    return null
+  }
+}
+
+/**
+ * Download media from Whapi and upload to Supabase Storage
+ */
+async function downloadAndStoreMedia(
+  supabase: SupabaseClient,
+  whapiToken: string,
+  channelId: string,
+  mediaId: string,
+  messageType: string,
+  mediaObject: any
+): Promise<{ url: string; metadata: Record<string, any>; storagePath: string } | null> {
+  try {
+    // Download the media file
+    const downloadResponse = await fetch(`https://gate.whapi.cloud/media/${mediaId}`, {
+      method: 'GET',
+      headers: {
+        'Authorization': `Bearer ${whapiToken}`,
+        'Accept': '*/*',
+      },
+    })
+
+    if (!downloadResponse.ok) {
+      console.log('[Webhook Processor] Media download failed:', downloadResponse.status)
+      return null
+    }
+
+    const contentType = downloadResponse.headers.get('content-type') || 'application/octet-stream'
+
+    // Check if response is JSON (media info) or binary (actual file)
+    if (contentType.includes('application/json')) {
+      // It returned JSON info, try to get the link from it
+      const jsonData = await downloadResponse.json()
+      if (jsonData.link || jsonData.url) {
+        return {
+          url: jsonData.link || jsonData.url,
+          metadata: {
+            mime_type: jsonData.mime_type || mediaObject?.mime_type,
+            size: jsonData.file_size || mediaObject?.file_size,
+            filename: jsonData.filename || mediaObject?.filename,
+            duration: jsonData.seconds || jsonData.duration || mediaObject?.seconds,
+            id: mediaId,
+          },
+          storagePath: '',
+        }
+      }
+      return null
+    }
+
+    // It's binary data, upload to Supabase Storage
+    const blob = await downloadResponse.blob()
+    const arrayBuffer = await blob.arrayBuffer()
+    const buffer = Buffer.from(arrayBuffer)
+
+    // Get workspace ID for storage path
+    const { data: channel } = await supabase
+      .from('channels')
+      .select('workspace_id')
+      .eq('id', channelId)
+      .single()
+
+    if (!channel) {
+      console.log('[Webhook Processor] Channel not found for storage upload')
+      return null
+    }
+
+    // Generate filename and path
+    const extension = getExtensionFromMimeType(contentType)
+    const filename = `${mediaId}${extension}`
+    const storagePath = `workspaces/${channel.workspace_id}/${messageType}/${filename}`
+
+    console.log('[Webhook Processor] Uploading media to storage:', storagePath)
+
+    // Upload to Supabase Storage
+    const { error: uploadError } = await supabase.storage
+      .from('media')
+      .upload(storagePath, buffer, {
+        contentType,
+        upsert: true,
+      })
+
+    if (uploadError) {
+      console.error('[Webhook Processor] Storage upload failed:', uploadError)
+      return null
+    }
+
+    // Get public URL
+    const { data: urlData } = supabase.storage
+      .from('media')
+      .getPublicUrl(storagePath)
+
+    console.log('[Webhook Processor] Media stored successfully:', urlData.publicUrl)
+
+    return {
+      url: urlData.publicUrl,
+      metadata: {
+        mime_type: contentType,
+        size: buffer.length,
+        filename: mediaObject?.filename || filename,
+        duration: mediaObject?.seconds || mediaObject?.duration,
+        width: mediaObject?.width,
+        height: mediaObject?.height,
+        id: mediaId,
+        stored: true,
+      },
+      storagePath,
+    }
+  } catch (error) {
+    console.error('[Webhook Processor] Error in downloadAndStoreMedia:', error)
+    return null
+  }
+}
+
+/**
+ * Get file extension from MIME type
+ */
+function getExtensionFromMimeType(mimeType: string): string {
+  const mimeToExt: Record<string, string> = {
+    'image/jpeg': '.jpg',
+    'image/png': '.png',
+    'image/gif': '.gif',
+    'image/webp': '.webp',
+    'video/mp4': '.mp4',
+    'video/3gpp': '.3gp',
+    'audio/ogg': '.ogg',
+    'audio/mpeg': '.mp3',
+    'audio/mp4': '.m4a',
+    'audio/amr': '.amr',
+    'application/pdf': '.pdf',
+    'application/msword': '.doc',
+    'application/vnd.openxmlformats-officedocument.wordprocessingml.document': '.docx',
+  }
+  return mimeToExt[mimeType] || ''
 }
 
 /**
