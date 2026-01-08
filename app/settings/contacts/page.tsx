@@ -80,6 +80,9 @@ function ContactsSettingsContent() {
         not_configured: 'Google OAuth is not configured',
         token_exchange_failed: 'Failed to authenticate with Google',
         internal_error: 'An error occurred during import',
+        no_refresh_token: 'Google did not provide a refresh token. Please revoke app access in Google settings and try again.',
+        no_encryption_key: 'Server encryption key not configured',
+        store_failed: 'Failed to store Google connection. Please try again.',
       }
       addToast(errorMessages[error] || 'Google import failed', 'error')
       window.history.replaceState({}, '', '/settings/contacts')

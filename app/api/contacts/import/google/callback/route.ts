@@ -108,14 +108,43 @@ export async function GET(request: NextRequest) {
     // Store refresh token for background sync (don't import synchronously)
     const supabase = createServiceRoleClient()
 
-    if (tokens.refresh_token && ENCRYPTION_KEY) {
-      await storeRefreshToken(
-        supabase,
-        stateData.workspace_id,
-        tokens.refresh_token,
-        connectedEmail
+    console.log('Google OAuth tokens received:', {
+      hasAccessToken: !!tokens.access_token,
+      hasRefreshToken: !!tokens.refresh_token,
+      hasEncryptionKey: !!ENCRYPTION_KEY,
+      workspaceId: stateData.workspace_id,
+      connectedEmail,
+    })
+
+    if (!tokens.refresh_token) {
+      console.error('No refresh token received from Google! User may need to revoke app access and re-authorize.')
+      return NextResponse.redirect(
+        new URL(`/settings/contacts?error=no_refresh_token`, request.url)
       )
     }
+
+    if (!ENCRYPTION_KEY) {
+      console.error('ENCRYPTION_KEY not set!')
+      return NextResponse.redirect(
+        new URL(`/settings/contacts?error=no_encryption_key`, request.url)
+      )
+    }
+
+    const storeResult = await storeRefreshToken(
+      supabase,
+      stateData.workspace_id,
+      tokens.refresh_token,
+      connectedEmail
+    )
+
+    if (!storeResult.success) {
+      console.error('Failed to store refresh token:', storeResult.error)
+      return NextResponse.redirect(
+        new URL(`/settings/contacts?error=store_failed`, request.url)
+      )
+    }
+
+    console.log('Refresh token stored successfully')
 
     // Redirect immediately - UI will trigger background sync
     return NextResponse.redirect(
@@ -140,24 +169,38 @@ async function storeRefreshToken(
   workspaceId: string,
   refreshToken: string,
   connectedEmail: string | null
-): Promise<void> {
-  if (!ENCRYPTION_KEY) return
+): Promise<{ success: boolean; error?: string }> {
+  if (!ENCRYPTION_KEY) {
+    return { success: false, error: 'No encryption key' }
+  }
 
-  const encrypted = encryptToken(refreshToken)
+  try {
+    const encrypted = encryptToken(refreshToken)
 
-  await supabase
-    .from('workspace_integrations')
-    .upsert({
-      workspace_id: workspaceId,
-      provider: 'google_contacts',
-      config: {
-        encrypted_refresh_token: encrypted,
-        connected_email: connectedEmail,
-      },
-      is_active: true,
-    }, {
-      onConflict: 'workspace_id,provider',
-    })
+    const { error } = await supabase
+      .from('workspace_integrations')
+      .upsert({
+        workspace_id: workspaceId,
+        provider: 'google_contacts',
+        config: {
+          encrypted_refresh_token: encrypted,
+          connected_email: connectedEmail,
+        },
+        is_active: true,
+      }, {
+        onConflict: 'workspace_id,provider',
+      })
+
+    if (error) {
+      console.error('Supabase upsert error:', error)
+      return { success: false, error: error.message }
+    }
+
+    return { success: true }
+  } catch (err) {
+    console.error('Store token error:', err)
+    return { success: false, error: err instanceof Error ? err.message : 'Unknown error' }
+  }
 }
 
 /**
