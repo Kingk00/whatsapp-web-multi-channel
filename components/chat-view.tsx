@@ -150,7 +150,7 @@ export function ChatView({ chatId }: ChatViewProps) {
           table: 'messages',
           filter: `chat_id=eq.${chatId}`,
         },
-        (payload) => {
+        () => {
           // Invalidate messages query to refetch
           queryClient.invalidateQueries({
             queryKey: queryKeys.messages.list(chatId),
