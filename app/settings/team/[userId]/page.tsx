@@ -1,7 +1,7 @@
 'use client'
 
-import { useEffect, useState, use } from 'react'
-import { useRouter } from 'next/navigation'
+import { useEffect, useState } from 'react'
+import { useRouter, useParams } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -32,8 +32,9 @@ interface LoginActivity {
   created_at: string
 }
 
-export default function UserDetailPage({ params }: { params: Promise<{ userId: string }> }) {
-  const { userId } = use(params)
+export default function UserDetailPage() {
+  const params = useParams()
+  const userId = params.userId as string
   const router = useRouter()
   const supabase = createClient()
   const { addToast } = useToast()
