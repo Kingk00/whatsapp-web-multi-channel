@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient, createServiceRoleClient } from '@/lib/supabase/server'
+import { decrypt } from '@/lib/encryption'
 
 /**
  * POST /api/chats/[id]/messages/media
@@ -130,21 +131,24 @@ export async function POST(
       return NextResponse.json({ error: 'No media provided' }, { status: 400 })
     }
 
-    // Get API token directly from channels table (bloe-engine approach)
-    // DO NOT CHANGE: See IMPLEMENTATION_NOTES.md
+    // Get encrypted token from channel_tokens table
     const serviceClient = createServiceRoleClient()
-    const { data: channelData } = await serviceClient
-      .from('channels')
-      .select('api_token')
-      .eq('id', chat.channel_id)
+    const { data: tokenData } = await serviceClient
+      .from('channel_tokens')
+      .select('encrypted_token')
+      .eq('channel_id', chat.channel_id)
+      .eq('token_type', 'whapi')
       .single()
 
-    if (!channelData?.api_token) {
+    if (!tokenData?.encrypted_token) {
       return NextResponse.json(
         { error: 'Channel API token not found' },
         { status: 500 }
       )
     }
+
+    // Decrypt the token
+    const whapiToken = decrypt(tokenData.encrypted_token)
 
     // Create pending message for immediate UI feedback
     const tempWaMessageId = `pending_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`
@@ -190,7 +194,7 @@ export async function POST(
     const whapiResponse = await fetch(whapiEndpoint, {
       method: 'POST',
       headers: {
-        'Authorization': `Bearer ${channelData.api_token}`,
+        'Authorization': `Bearer ${whapiToken}`,
         'Content-Type': 'application/json',
       },
       body: JSON.stringify(whapiPayload),
