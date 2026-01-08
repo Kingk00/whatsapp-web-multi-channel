@@ -3,6 +3,9 @@ import { createServiceRoleClient } from '@/lib/supabase/server'
 import { validateApiAuth } from '@/lib/auth-helpers'
 import { createHash, createDecipheriv } from 'crypto'
 
+// Extend timeout for large contact lists
+export const maxDuration = 300 // 5 minutes (requires Vercel Pro, otherwise max 60s)
+
 const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID
 const GOOGLE_CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET
 const ENCRYPTION_KEY = process.env.TOKEN_ENCRYPTION_KEY || process.env.ENCRYPTION_KEY

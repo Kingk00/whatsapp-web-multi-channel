@@ -3,6 +3,7 @@ import { createServiceRoleClient } from '@/lib/supabase/server'
 import { createHash, randomBytes, createCipheriv, createDecipheriv } from 'crypto'
 
 export const dynamic = 'force-dynamic'
+export const maxDuration = 300 // 5 minutes for large contact imports
 
 const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID
 const GOOGLE_CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET
