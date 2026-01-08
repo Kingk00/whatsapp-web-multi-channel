@@ -69,7 +69,8 @@ export async function GET() {
 /**
  * POST /api/contacts/sync/google
  *
- * Sync contacts from Google using stored refresh token
+ * Sync contacts from Google using stored refresh token.
+ * Processes in batches and checks for duplicates efficiently.
  */
 export async function POST(request: NextRequest) {
   try {
@@ -137,11 +138,55 @@ export async function POST(request: NextRequest) {
     // Fetch contacts from Google
     const contacts = await fetchGoogleContacts(tokens.access_token)
 
-    // Sync contacts to database
+    // Pre-fetch all existing Google resource names for this workspace
+    const { data: existingGoogleContacts } = await supabase
+      .from('contacts')
+      .select('id, display_name, source_metadata')
+      .eq('workspace_id', profile.workspace_id)
+      .eq('source', 'google')
+
+    const existingByResourceName = new Map<string, { id: string; display_name: string }>()
+    for (const c of existingGoogleContacts || []) {
+      const resourceName = (c.source_metadata as any)?.google_resource_name
+      if (resourceName) {
+        existingByResourceName.set(resourceName, { id: c.id, display_name: c.display_name })
+      }
+    }
+
+    // Pre-fetch all existing phone hashes for this workspace
+    const { data: allContacts } = await supabase
+      .from('contacts')
+      .select('id')
+      .eq('workspace_id', profile.workspace_id)
+
+    const contactIds = (allContacts || []).map(c => c.id)
+
+    const existingPhoneHashes = new Set<string>()
+    if (contactIds.length > 0) {
+      // Fetch in batches to avoid query limits
+      for (let i = 0; i < contactIds.length; i += 500) {
+        const batch = contactIds.slice(i, i + 500)
+        const { data: phoneLookups } = await supabase
+          .from('contact_phone_lookup')
+          .select('phone_e164_hash')
+          .in('contact_id', batch)
+
+        for (const p of phoneLookups || []) {
+          existingPhoneHashes.add(p.phone_e164_hash)
+        }
+      }
+    }
+
+    // Process contacts
     let created = 0
     let updated = 0
     let skipped = 0
     const errors: string[] = []
+
+    // Process in batches
+    const BATCH_SIZE = 50
+    const contactsToCreate: any[] = []
+    const phoneLookupEntries: any[] = []
 
     for (const contact of contacts) {
       try {
@@ -157,29 +202,15 @@ export async function POST(request: NextRequest) {
             normalized: normalizePhoneNumber(p.value!),
           }))
 
-        const emailAddresses = (contact.emailAddresses || [])
-          .filter((e) => e.value)
-          .map((e) => ({
-            email: e.value!,
-            type: e.type || 'personal',
-          }))
-
         // Skip contacts without phone numbers
         if (phoneNumbers.length === 0) {
           skipped++
           continue
         }
 
-        // Check if contact exists by Google resource name
-        const { data: existingByGoogle } = await supabase
-          .from('contacts')
-          .select('id, display_name')
-          .eq('workspace_id', profile.workspace_id)
-          .eq('source_metadata->>google_resource_name', contact.resourceName)
-          .single()
-
+        // Check if already exists by Google resource name
+        const existingByGoogle = existingByResourceName.get(contact.resourceName)
         if (existingByGoogle) {
-          // Update if name changed
           if (existingByGoogle.display_name !== displayName) {
             await supabase
               .from('contacts')
@@ -192,65 +223,92 @@ export async function POST(request: NextRequest) {
           continue
         }
 
-        // Check if contact exists by phone number
+        // Check if exists by phone number
         const normalizedPhones = phoneNumbers
           .map((p) => p.normalized)
           .filter(Boolean) as string[]
 
-        if (normalizedPhones.length > 0) {
-          const hashes = normalizedPhones.map(hashPhone)
-          const { data: existingByPhone } = await supabase
-            .from('contact_phone_lookup')
-            .select('contact_id, contacts!inner(workspace_id)')
-            .in('phone_e164_hash', hashes)
-            .eq('contacts.workspace_id', profile.workspace_id)
-            .limit(1)
+        const phoneHashes = normalizedPhones.map(hashPhone)
+        const hasExistingPhone = phoneHashes.some(h => existingPhoneHashes.has(h))
 
-          if (existingByPhone && existingByPhone.length > 0) {
-            skipped++
-            continue
-          }
-        }
-
-        // Create new contact
-        const { data: newContact, error: createError } = await supabase
-          .from('contacts')
-          .insert({
-            workspace_id: profile.workspace_id,
-            display_name: displayName,
-            phone_numbers: phoneNumbers,
-            email_addresses: emailAddresses,
-            source: 'google',
-            source_metadata: {
-              google_resource_name: contact.resourceName,
-              synced_at: new Date().toISOString(),
-            },
-          })
-          .select('id')
-          .single()
-
-        if (createError) {
-          errors.push(`Failed to create ${displayName}: ${createError.message}`)
+        if (hasExistingPhone) {
+          skipped++
           continue
         }
 
-        // Create phone lookup entries
-        if (newContact && normalizedPhones.length > 0) {
-          const phoneEntries = phoneNumbers
-            .filter((p) => p.normalized)
-            .map((p) => ({
-              contact_id: newContact.id,
-              phone_e164: p.normalized,
-              phone_e164_hash: hashPhone(p.normalized!),
-              phone_type: p.type,
-            }))
+        // Add to batch for creation
+        const contactId = crypto.randomUUID()
+        contactsToCreate.push({
+          id: contactId,
+          workspace_id: profile.workspace_id,
+          display_name: displayName,
+          phone_numbers: phoneNumbers,
+          email_addresses: (contact.emailAddresses || [])
+            .filter((e) => e.value)
+            .map((e) => ({ email: e.value!, type: e.type || 'personal' })),
+          source: 'google',
+          source_metadata: {
+            google_resource_name: contact.resourceName,
+            synced_at: new Date().toISOString(),
+          },
+        })
 
-          await supabase.from('contact_phone_lookup').insert(phoneEntries)
+        // Prepare phone lookup entries
+        for (const p of phoneNumbers) {
+          if (p.normalized) {
+            const hash = hashPhone(p.normalized)
+            phoneLookupEntries.push({
+              contact_id: contactId,
+              phone_e164: p.normalized,
+              phone_e164_hash: hash,
+              phone_type: p.type,
+            })
+            // Add to set to prevent duplicates within this sync
+            existingPhoneHashes.add(hash)
+          }
         }
 
-        created++
+        // Also add to map to prevent duplicates
+        existingByResourceName.set(contact.resourceName, { id: contactId, display_name: displayName })
+
+        // Insert batch when full
+        if (contactsToCreate.length >= BATCH_SIZE) {
+          const { error: batchError } = await supabase
+            .from('contacts')
+            .insert(contactsToCreate)
+
+          if (batchError) {
+            errors.push(`Batch insert failed: ${batchError.message}`)
+          } else {
+            created += contactsToCreate.length
+          }
+
+          if (phoneLookupEntries.length > 0) {
+            await supabase.from('contact_phone_lookup').insert(phoneLookupEntries)
+          }
+
+          contactsToCreate.length = 0
+          phoneLookupEntries.length = 0
+        }
       } catch (err: any) {
         errors.push(`Error: ${err?.message || 'Unknown error'}`)
+      }
+    }
+
+    // Insert remaining contacts
+    if (contactsToCreate.length > 0) {
+      const { error: batchError } = await supabase
+        .from('contacts')
+        .insert(contactsToCreate)
+
+      if (batchError) {
+        errors.push(`Final batch insert failed: ${batchError.message}`)
+      } else {
+        created += contactsToCreate.length
+      }
+
+      if (phoneLookupEntries.length > 0) {
+        await supabase.from('contact_phone_lookup').insert(phoneLookupEntries)
       }
     }
 
