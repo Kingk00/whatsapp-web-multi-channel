@@ -128,57 +128,39 @@ export async function PATCH(
         )
       }
 
-      // Strip the @s.whatsapp.net or @c.us suffix for the 'to' parameter
-      // Whapi examples show just the phone number: "919984351847" not "919984351847@s.whatsapp.net"
-      const waChatId = fullWaChatId.replace(/@(s\.whatsapp\.net|c\.us|g\.us)$/, '')
+      // Format the 'to' parameter correctly:
+      // - For individual chats: strip @s.whatsapp.net or @c.us suffix (use just phone number)
+      // - For groups: KEEP the @g.us suffix (required for group messages)
+      const isGroup = fullWaChatId.endsWith('@g.us')
+      const waChatId = isGroup
+        ? fullWaChatId  // Keep full group ID with @g.us
+        : fullWaChatId.replace(/@(s\.whatsapp\.net|c\.us)$/, '')  // Strip suffix for individual chats
 
-      console.log('[Message Edit] Editing message:', message.wa_message_id, 'in chat:', waChatId, '(full:', fullWaChatId, ')')
+      console.log('[Message Edit] Editing message:', message.wa_message_id, 'in chat:', waChatId, '(full:', fullWaChatId, ', isGroup:', isGroup, ')')
 
-      // Try Method 1: PUT /messages/{id} (direct update)
-      const encodedMessageId = encodeURIComponent(message.wa_message_id)
-      console.log('[Message Edit] Trying PUT /messages/', encodedMessageId)
+      // Whapi uses POST /messages/text with "edit" parameter to edit messages
+      // (PUT /messages/{id} is for marking as read, NOT editing)
+      const requestBody = {
+        to: waChatId,
+        body: text.trim(),
+        edit: message.wa_message_id,
+      }
+      console.log('[Message Edit] Request body:', JSON.stringify(requestBody))
 
-      let whapiResponse = await fetch(
-        `https://gate.whapi.cloud/messages/${encodedMessageId}`,
+      const whapiResponse = await fetch(
+        'https://gate.whapi.cloud/messages/text',
         {
-          method: 'PUT',
+          method: 'POST',
           headers: {
             'Authorization': `Bearer ${whapiToken}`,
             'Content-Type': 'application/json',
           },
-          body: JSON.stringify({ body: text.trim() }),
+          body: JSON.stringify(requestBody),
         }
       )
 
-      let responseText = await whapiResponse.text()
-      console.log('[Message Edit] PUT response status:', whapiResponse.status, 'body:', responseText)
-
-      // If PUT didn't work (404 or method not allowed), try Method 2: POST with edit parameter
-      if (!whapiResponse.ok && (whapiResponse.status === 404 || whapiResponse.status === 405)) {
-        console.log('[Message Edit] PUT failed, trying POST /messages/text with edit parameter')
-
-        const requestBody = {
-          to: waChatId,
-          body: text.trim(),
-          edit: message.wa_message_id,
-        }
-        console.log('[Message Edit] POST request body:', JSON.stringify(requestBody))
-
-        whapiResponse = await fetch(
-          'https://gate.whapi.cloud/messages/text',
-          {
-            method: 'POST',
-            headers: {
-              'Authorization': `Bearer ${whapiToken}`,
-              'Content-Type': 'application/json',
-            },
-            body: JSON.stringify(requestBody),
-          }
-        )
-
-        responseText = await whapiResponse.text()
-        console.log('[Message Edit] POST response status:', whapiResponse.status, 'body:', responseText)
-      }
+      const responseText = await whapiResponse.text()
+      console.log('[Message Edit] Whapi response status:', whapiResponse.status, 'body:', responseText)
 
       // Check if the response indicates a successful edit
       let responseData: Record<string, unknown> = {}
@@ -188,13 +170,23 @@ export async function PATCH(
         // Response was not JSON
       }
 
+      // Log the full response for debugging
+      console.log('[Message Edit] Full response data:', JSON.stringify(responseData))
+
       // Check if this was actually an edit or if Whapi sent a new message
+      // A successful edit should NOT return a new message ID
+      const responseMessage = responseData.message as Record<string, unknown> | undefined
+      const responseMessageId = responseMessage?.id || responseData.id
+      const wasEdited = responseData.edited === true || responseMessage?.edited === true
+
+      console.log('[Message Edit] Response analysis - messageId:', responseMessageId, 'wasEdited:', wasEdited, 'sent:', responseData.sent)
+
       // If 'sent' is true and there's a new message ID different from original, the edit failed
-      const responseMessageId = (responseData.message as Record<string, unknown>)?.id || responseData.id
-      if (responseData.sent && responseMessageId && responseMessageId !== message.wa_message_id) {
-        console.error('[Message Edit] Whapi created a new message instead of editing:', responseMessageId)
+      // and Whapi created a new message instead
+      if (responseData.sent && responseMessageId && responseMessageId !== message.wa_message_id && !wasEdited) {
+        console.error('[Message Edit] Whapi created a new message instead of editing! New ID:', responseMessageId, 'Original ID:', message.wa_message_id)
         return NextResponse.json(
-          { error: 'Failed to edit message. WhatsApp may not support editing this message.' },
+          { error: 'Failed to edit message. A new message was sent instead. The original message may be too old to edit (15 min limit).' },
           { status: 400 }
         )
       }
