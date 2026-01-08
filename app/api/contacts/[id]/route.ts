@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createClient, createServiceRoleClient } from '@/lib/supabase/server'
 import { createHash } from 'crypto'
 import { pushContactUpdateToWhapi, pushContactDeleteToWhapi } from '@/lib/whapi-contacts-sync'
+import { normalizePhoneNumber } from '@/lib/phone-utils'
 
 /**
  * GET /api/contacts/[id]
@@ -79,7 +80,7 @@ export async function PATCH(
     // Verify contact exists and user has access
     const { data: existingContact, error: fetchError } = await supabase
       .from('contacts')
-      .select('id, workspace_id, whapi_contact_id')
+      .select('id, workspace_id, whapi_contact_id, source, source_metadata')
       .eq('id', contactId)
       .single()
 
@@ -92,6 +93,18 @@ export async function PATCH(
 
     const updateData: Record<string, unknown> = {
       updated_at: new Date().toISOString(),
+    }
+
+    // If the contact was from Google and is being edited, change source to 'manual'
+    // This removes the Google link so it won't be synced back
+    if (existingContact.source === 'google') {
+      updateData.source = 'manual'
+      // Remove google_resource_name from metadata so it can be pushed as a new contact
+      const metadata = (existingContact.source_metadata as Record<string, unknown>) || {}
+      delete metadata.google_resource_name
+      metadata.originally_from_google = true
+      metadata.edited_at = new Date().toISOString()
+      updateData.source_metadata = metadata
     }
 
     if (display_name !== undefined) {
@@ -274,21 +287,6 @@ export async function DELETE(
       { status: 500 }
     )
   }
-}
-
-function normalizePhoneNumber(phone: string): string | null {
-  if (!phone) return null
-  let cleaned = phone.replace(/[^\d+]/g, '')
-  if (!cleaned.startsWith('+')) {
-    if (cleaned.length === 10) {
-      cleaned = '+1' + cleaned
-    } else if (cleaned.length === 11 && cleaned.startsWith('1')) {
-      cleaned = '+' + cleaned
-    } else {
-      cleaned = '+' + cleaned
-    }
-  }
-  return cleaned
 }
 
 function hashPhone(phone: string): string {

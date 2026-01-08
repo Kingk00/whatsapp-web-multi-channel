@@ -152,34 +152,91 @@ async function findDuplicates(
   supabase: ReturnType<typeof createServiceRoleClient>,
   workspaceId: string
 ): Promise<DuplicateGroup[]> {
-  // Get all contacts with their phone numbers
-  const { data: contacts } = await supabase
-    .from('contacts')
-    .select('id, display_name, phone_numbers, created_at')
-    .eq('workspace_id', workspaceId)
-    .order('created_at', { ascending: true })
+  // Get ALL contacts with their phone numbers (handle Supabase 1000 row default limit)
+  const allContacts: Array<{
+    id: string
+    display_name: string
+    phone_numbers: any
+    created_at: string
+  }> = []
 
-  if (!contacts || contacts.length === 0) {
+  const PAGE_SIZE = 1000
+  let offset = 0
+  let hasMore = true
+
+  while (hasMore) {
+    const { data: batch, error } = await supabase
+      .from('contacts')
+      .select('id, display_name, phone_numbers, created_at')
+      .eq('workspace_id', workspaceId)
+      .order('created_at', { ascending: true })
+      .range(offset, offset + PAGE_SIZE - 1)
+
+    if (error) {
+      console.error('Error fetching contacts batch:', error)
+      break
+    }
+
+    if (batch && batch.length > 0) {
+      allContacts.push(...batch)
+      offset += batch.length
+      hasMore = batch.length === PAGE_SIZE
+    } else {
+      hasMore = false
+    }
+  }
+
+  console.log(`Fetched ${allContacts.length} total contacts for duplicate detection`)
+
+  if (allContacts.length === 0) {
     return []
   }
 
+  const contacts = allContacts
+
   // Group contacts by normalized phone number
   const phoneMap = new Map<string, typeof contacts>()
+  let contactsWithPhones = 0
+  let totalPhoneNumbers = 0
 
   for (const contact of contacts) {
-    const phones = contact.phone_numbers as Array<{ number: string; normalized?: string }> | null
-    if (!phones || phones.length === 0) continue
+    // Handle different phone_numbers formats (array, string, null)
+    let phones: Array<{ number: string; normalized?: string }> = []
+
+    if (Array.isArray(contact.phone_numbers)) {
+      phones = contact.phone_numbers
+    } else if (typeof contact.phone_numbers === 'string') {
+      // Handle case where phone_numbers might be a raw string
+      phones = [{ number: contact.phone_numbers }]
+    } else if (contact.phone_numbers && typeof contact.phone_numbers === 'object') {
+      // Handle single phone object
+      phones = [contact.phone_numbers as { number: string; normalized?: string }]
+    }
+
+    if (phones.length === 0) continue
+    contactsWithPhones++
 
     for (const phone of phones) {
-      // Use pre-normalized value if available, otherwise normalize using libphonenumber-js
-      const normalized = phone.normalized || normalizePhoneNumber(phone.number)
+      // Get the phone number string
+      const phoneNumber = phone.number || (phone as any).value || (phone as any).phone || String(phone)
+      if (!phoneNumber || typeof phoneNumber !== 'string') continue
+
+      totalPhoneNumbers++
+
+      // Always try to normalize fresh to ensure consistency
+      const normalized = normalizePhoneNumber(phoneNumber)
       if (!normalized) continue
 
       const existing = phoneMap.get(normalized) || []
-      existing.push(contact)
-      phoneMap.set(normalized, existing)
+      // Avoid adding same contact twice to same group
+      if (!existing.some(c => c.id === contact.id)) {
+        existing.push(contact)
+        phoneMap.set(normalized, existing)
+      }
     }
   }
+
+  console.log(`Processed ${contactsWithPhones} contacts with phones, ${totalPhoneNumbers} total phone numbers`)
 
   // Find groups with more than one contact
   const duplicateGroups: DuplicateGroup[] = []

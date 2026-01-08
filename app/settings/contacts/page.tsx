@@ -358,8 +358,11 @@ function ContactsSettingsContent() {
         throw new Error(data.error || 'Sync failed')
       }
 
+      const pulled = data.result.pulled ?? data.result.created ?? 0
+      const pushed = data.result.pushed ?? 0
+      const updated = data.result.updated ?? 0
       addToast(
-        `Synced: ${data.result.created} new, ${data.result.updated} updated, ${data.result.skipped} skipped`,
+        `Synced: ${pulled} pulled from Google, ${pushed} pushed to Google, ${updated} updated`,
         'success'
       )
       queryClient.invalidateQueries({ queryKey: ['contacts'] })

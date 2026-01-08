@@ -72,8 +72,9 @@ export async function GET() {
 /**
  * POST /api/contacts/sync/google
  *
- * Sync contacts from Google using stored refresh token.
- * Processes in batches and checks for duplicates efficiently.
+ * Two-way sync:
+ * 1. PULL: Fetch new contacts from Google → Database
+ * 2. PUSH: Send non-Google contacts from Database → Google
  */
 export async function POST(request: NextRequest) {
   try {
@@ -138,8 +139,10 @@ export async function POST(request: NextRequest) {
 
     const tokens = await tokenResponse.json()
 
-    // Fetch contacts from Google
-    const contacts = await fetchGoogleContacts(tokens.access_token)
+    // ========================================
+    // PART 1: PULL - Fetch contacts FROM Google
+    // ========================================
+    const googleContacts = await fetchGoogleContacts(tokens.access_token)
 
     // Pre-fetch all existing Google resource names for this workspace
     const { data: existingGoogleContacts } = await supabase
@@ -180,18 +183,17 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // Process contacts
-    let created = 0
+    // Process contacts from Google (PULL)
+    let pulled = 0
     let updated = 0
-    let skipped = 0
+    let skippedPull = 0
     const errors: string[] = []
 
-    // Process in batches
     const BATCH_SIZE = 50
     const contactsToCreate: any[] = []
     const phoneLookupEntries: any[] = []
 
-    for (const contact of contacts) {
+    for (const contact of googleContacts) {
       try {
         const displayName = contact.names?.[0]?.displayName ||
           contact.names?.[0]?.givenName ||
@@ -207,7 +209,7 @@ export async function POST(request: NextRequest) {
 
         // Skip contacts without phone numbers
         if (phoneNumbers.length === 0) {
-          skipped++
+          skippedPull++
           continue
         }
 
@@ -221,7 +223,7 @@ export async function POST(request: NextRequest) {
               .eq('id', existingByGoogle.id)
             updated++
           } else {
-            skipped++
+            skippedPull++
           }
           continue
         }
@@ -235,7 +237,7 @@ export async function POST(request: NextRequest) {
         const hasExistingPhone = phoneHashes.some(h => existingPhoneHashes.has(h))
 
         if (hasExistingPhone) {
-          skipped++
+          skippedPull++
           continue
         }
 
@@ -266,12 +268,10 @@ export async function POST(request: NextRequest) {
               phone_e164_hash: hash,
               phone_type: p.type,
             })
-            // Add to set to prevent duplicates within this sync
             existingPhoneHashes.add(hash)
           }
         }
 
-        // Also add to map to prevent duplicates
         existingByResourceName.set(contact.resourceName, { id: contactId, display_name: displayName })
 
         // Insert batch when full
@@ -281,9 +281,9 @@ export async function POST(request: NextRequest) {
             .insert(contactsToCreate)
 
           if (batchError) {
-            errors.push(`Batch insert failed: ${batchError.message}`)
+            errors.push(`Pull batch failed: ${batchError.message}`)
           } else {
-            created += contactsToCreate.length
+            pulled += contactsToCreate.length
           }
 
           if (phoneLookupEntries.length > 0) {
@@ -294,24 +294,88 @@ export async function POST(request: NextRequest) {
           phoneLookupEntries.length = 0
         }
       } catch (err: any) {
-        errors.push(`Error: ${err?.message || 'Unknown error'}`)
+        errors.push(`Pull error: ${err?.message || 'Unknown error'}`)
       }
     }
 
-    // Insert remaining contacts
+    // Insert remaining pulled contacts
     if (contactsToCreate.length > 0) {
       const { error: batchError } = await supabase
         .from('contacts')
         .insert(contactsToCreate)
 
       if (batchError) {
-        errors.push(`Final batch insert failed: ${batchError.message}`)
+        errors.push(`Pull final batch failed: ${batchError.message}`)
       } else {
-        created += contactsToCreate.length
+        pulled += contactsToCreate.length
       }
 
       if (phoneLookupEntries.length > 0) {
         await supabase.from('contact_phone_lookup').insert(phoneLookupEntries)
+      }
+    }
+
+    // ========================================
+    // PART 2: PUSH - Send non-Google contacts TO Google
+    // ========================================
+    let pushed = 0
+    let skippedPush = 0
+
+    // Get all non-Google contacts that haven't been pushed yet
+    const { data: nonGoogleContacts } = await supabase
+      .from('contacts')
+      .select('id, display_name, phone_numbers, email_addresses, source_metadata')
+      .eq('workspace_id', profile.workspace_id)
+      .neq('source', 'google')
+
+    // Build set of Google resource names we already know about
+    const googleResourceNames = new Set(existingByResourceName.keys())
+
+    for (const contact of nonGoogleContacts || []) {
+      try {
+        // Skip if already pushed to Google (has google_resource_name in metadata)
+        const existingResourceName = (contact.source_metadata as any)?.google_resource_name
+        if (existingResourceName) {
+          skippedPush++
+          continue
+        }
+
+        // Get phone numbers
+        const phones = contact.phone_numbers as Array<{ number: string; normalized?: string }> | null
+        if (!phones || phones.length === 0) {
+          skippedPush++
+          continue
+        }
+
+        // Push to Google
+        const resourceName = await pushContactToGoogle(tokens.access_token, {
+          displayName: contact.display_name,
+          phoneNumbers: phones.map(p => ({ value: p.number, type: (p as any).type || 'mobile' })),
+          emailAddresses: ((contact.email_addresses as any[]) || []).map(e => ({
+            value: e.email,
+            type: e.type || 'personal',
+          })),
+        })
+
+        if (resourceName) {
+          // Update contact with Google resource name
+          await supabase
+            .from('contacts')
+            .update({
+              source_metadata: {
+                ...(contact.source_metadata as object || {}),
+                google_resource_name: resourceName,
+                pushed_to_google_at: new Date().toISOString(),
+              },
+            })
+            .eq('id', contact.id)
+
+          pushed++
+        } else {
+          skippedPush++
+        }
+      } catch (err: any) {
+        errors.push(`Push error: ${err?.message || 'Unknown error'}`)
       }
     }
 
@@ -324,7 +388,13 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json({
       success: true,
-      result: { created, updated, skipped, errors: errors.length > 0 ? errors : undefined },
+      result: {
+        pulled,
+        pushed,
+        updated,
+        skipped: skippedPull + skippedPush,
+        errors: errors.length > 0 ? errors : undefined,
+      },
     })
   } catch (error) {
     if (error instanceof Response) {
@@ -378,6 +448,51 @@ export async function DELETE() {
       { error: 'Internal server error' },
       { status: 500 }
     )
+  }
+}
+
+/**
+ * Push a contact to Google People API
+ */
+async function pushContactToGoogle(
+  accessToken: string,
+  contact: {
+    displayName: string
+    phoneNumbers: Array<{ value: string; type?: string }>
+    emailAddresses?: Array<{ value: string; type?: string }>
+  }
+): Promise<string | null> {
+  try {
+    const response = await fetch('https://people.googleapis.com/v1/people:createContact', {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        names: [{ givenName: contact.displayName }],
+        phoneNumbers: contact.phoneNumbers.map(p => ({
+          value: p.value,
+          type: p.type || 'mobile',
+        })),
+        emailAddresses: contact.emailAddresses?.map(e => ({
+          value: e.value,
+          type: e.type || 'other',
+        })) || [],
+      }),
+    })
+
+    if (!response.ok) {
+      const errorText = await response.text()
+      console.error('Failed to push contact to Google:', errorText)
+      return null
+    }
+
+    const data = await response.json()
+    return data.resourceName || null
+  } catch (error) {
+    console.error('Error pushing contact to Google:', error)
+    return null
   }
 }
 
