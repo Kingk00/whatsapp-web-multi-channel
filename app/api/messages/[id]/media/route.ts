@@ -171,7 +171,8 @@ export async function GET(
             const arrayBuffer = await blob.arrayBuffer()
             const buffer = Buffer.from(arrayBuffer)
 
-            const channel = message.channels as { id: string; workspace_id: string }
+            const channels = message.channels as unknown as { id: string; workspace_id: string }[]
+            const channel = channels[0]
             const extension = getExtensionFromMimeType(contentType)
             const filename = `${mediaId}${extension}`
             storagePath = `workspaces/${channel.workspace_id}/${message.message_type}/${filename}`
