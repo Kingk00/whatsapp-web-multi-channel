@@ -46,12 +46,13 @@ export async function PATCH(
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
 
-    // Get the message with channel info
+    // Get the message with channel and chat info
     const { data: message, error: messageError } = await supabase
       .from('messages')
       .select(`
         id,
         channel_id,
+        chat_id,
         wa_message_id,
         direction,
         message_type,
@@ -60,6 +61,9 @@ export async function PATCH(
         channels!inner (
           id,
           workspace_id
+        ),
+        chats!inner (
+          wa_chat_id
         )
       `)
       .eq('id', messageId)
@@ -112,31 +116,52 @@ export async function PATCH(
 
       const whapiToken = decrypt(tokenData.encrypted_token)
 
+      // Get the chat's WhatsApp ID (phone number or group ID)
+      const waChatId = (message.chats as { wa_chat_id: string }).wa_chat_id
+
       // Call WhatsApp API to edit the message
-      console.log('[Message Edit] Editing message:', message.wa_message_id)
+      // Whapi uses POST /messages/text with an "edit" parameter
+      console.log('[Message Edit] Editing message:', message.wa_message_id, 'in chat:', waChatId)
+
+      const requestBody = {
+        to: waChatId,
+        body: text.trim(),
+        edit: message.wa_message_id,
+      }
+      console.log('[Message Edit] Request body:', JSON.stringify(requestBody))
 
       const whapiResponse = await fetch(
-        `https://gate.whapi.cloud/messages/${message.wa_message_id}`,
+        'https://gate.whapi.cloud/messages/text',
         {
-          method: 'PATCH',
+          method: 'POST',
           headers: {
             'Authorization': `Bearer ${whapiToken}`,
             'Content-Type': 'application/json',
           },
-          body: JSON.stringify({ body: text.trim() }),
+          body: JSON.stringify(requestBody),
         }
       )
 
+      const responseText = await whapiResponse.text()
+      console.log('[Message Edit] WhatsApp API response status:', whapiResponse.status, 'body:', responseText)
+
       if (!whapiResponse.ok) {
-        const errorData = await whapiResponse.json().catch(() => ({}))
+        let errorData: Record<string, unknown> = {}
+        try {
+          errorData = JSON.parse(responseText)
+        } catch {
+          // Response was not JSON
+        }
         console.error('[Message Edit] WhatsApp API error:', errorData)
 
         // Check for common error cases
-        const errorMessage = errorData?.error?.message || errorData?.message || ''
+        const errorObj = errorData?.error as Record<string, unknown> | undefined
+        const errorMessage = String(errorObj?.message || errorData?.message || '')
         if (
           errorMessage.toLowerCase().includes('time') ||
           errorMessage.toLowerCase().includes('expired') ||
-          errorMessage.toLowerCase().includes('edit')
+          errorMessage.toLowerCase().includes('edit') ||
+          errorMessage.toLowerCase().includes('15')
         ) {
           return NextResponse.json(
             { error: 'This message can no longer be edited. WhatsApp allows editing within 15 minutes of sending.' },
@@ -261,10 +286,12 @@ export async function DELETE(
       const whapiToken = decrypt(tokenData.encrypted_token)
 
       // Call WhatsApp API to delete the message
-      console.log('[Message Delete] Deleting message from WhatsApp:', message.wa_message_id)
+      // URL encode the message ID in case it contains special characters
+      const encodedMessageId = encodeURIComponent(message.wa_message_id)
+      console.log('[Message Delete] Deleting message from WhatsApp:', message.wa_message_id, '(encoded:', encodedMessageId, ')')
 
       const whapiResponse = await fetch(
-        `https://gate.whapi.cloud/messages/${message.wa_message_id}`,
+        `https://gate.whapi.cloud/messages/${encodedMessageId}`,
         {
           method: 'DELETE',
           headers: {
@@ -273,8 +300,16 @@ export async function DELETE(
         }
       )
 
+      const responseText = await whapiResponse.text()
+      console.log('[Message Delete] WhatsApp API response status:', whapiResponse.status, 'body:', responseText)
+
       if (!whapiResponse.ok) {
-        const errorData = await whapiResponse.json().catch(() => ({}))
+        let errorData = {}
+        try {
+          errorData = JSON.parse(responseText)
+        } catch {
+          // Response was not JSON
+        }
         console.error('[Message Delete] WhatsApp API error:', errorData)
         // Continue with local delete even if WhatsApp deletion fails
         // This handles cases where message is already deleted on WhatsApp
