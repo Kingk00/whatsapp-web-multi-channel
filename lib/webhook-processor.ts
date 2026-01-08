@@ -207,13 +207,28 @@ async function processSingleMessage(
     // Extract text content
     const textContent = extractTextContent(messageData)
 
+    // Check if this is a view-once message
+    const isViewOnce = messageData.is_view_once ?? messageData.viewOnce ?? false
+
     // Extract media info if present - handle various Whapi formats
     // Also fetch from Whapi if link not present but media ID is
     // As a last resort, downloads and stores media in Supabase Storage
-    const mediaInfo = await extractMediaInfoWithFetch(supabase, channel.id, messageData, messageType)
-    const mediaUrl = mediaInfo?.url || null
-    const mediaMetadata = mediaInfo?.metadata || null
-    const storagePath = mediaInfo?.storagePath || null
+    // For view-once messages, we MUST download and store immediately as the URL expires quickly
+    const mediaInfo = await extractMediaInfoWithFetch(supabase, channel.id, messageData, messageType, isViewOnce)
+    let mediaUrl = mediaInfo?.url || null
+    let mediaMetadata = mediaInfo?.metadata || null
+    let storagePath = mediaInfo?.storagePath || null
+
+    // For view-once messages, if we got a URL but didn't store it, force download now
+    if (isViewOnce && mediaUrl && !storagePath) {
+      console.log('[Webhook Processor] View-once message - forcing download and storage')
+      const forceDownload = await forceDownloadAndStore(supabase, channel.id, channel.workspace_id, mediaUrl, messageType, mediaMetadata)
+      if (forceDownload) {
+        mediaUrl = forceDownload.url
+        storagePath = forceDownload.storagePath
+        mediaMetadata = { ...mediaMetadata, ...forceDownload.metadata, stored: true }
+      }
+    }
 
     // Extract sender info
     const senderWaId = messageData.from || messageData.sender?.id
@@ -239,7 +254,7 @@ async function processSingleMessage(
       text: textContent,
       media_url: mediaUrl,
       media_metadata: mediaMetadata,
-      is_view_once: messageData.is_view_once ?? messageData.viewOnce ?? false,
+      is_view_once: isViewOnce,
       status: direction === 'outbound' ? (messageData.status || 'sent') : null,
       sender_wa_id: senderWaId,
       sender_name: senderName,
@@ -805,7 +820,8 @@ async function extractMediaInfoWithFetch(
   supabase: SupabaseClient,
   channelId: string,
   messageData: any,
-  messageType: string
+  messageType: string,
+  isViewOnce: boolean = false
 ): Promise<{ url: string; metadata: Record<string, any>; storagePath?: string } | null> {
   // First try direct extraction
   const directMedia = extractMediaInfo(messageData, messageType)
@@ -1083,6 +1099,93 @@ async function downloadAndStoreMedia(
     }
   } catch (error) {
     console.error('[Webhook Processor] Error in downloadAndStoreMedia:', error)
+    return null
+  }
+}
+
+/**
+ * Force download media from a URL and store in Supabase Storage
+ * Used for view-once messages where the URL expires quickly
+ */
+async function forceDownloadAndStore(
+  supabase: SupabaseClient,
+  channelId: string,
+  workspaceId: string,
+  mediaUrl: string,
+  messageType: string,
+  existingMetadata: Record<string, any> | null
+): Promise<{ url: string; metadata: Record<string, any>; storagePath: string } | null> {
+  try {
+    console.log('[Webhook Processor] Force downloading view-once media from:', mediaUrl.slice(0, 100))
+
+    // Download the media from the URL
+    const downloadResponse = await fetch(mediaUrl, {
+      method: 'GET',
+      headers: {
+        'Accept': '*/*',
+      },
+    })
+
+    if (!downloadResponse.ok) {
+      console.log('[Webhook Processor] View-once media download failed:', downloadResponse.status)
+      return null
+    }
+
+    const contentType = downloadResponse.headers.get('content-type') || existingMetadata?.mime_type || 'application/octet-stream'
+
+    // Get the binary data
+    const blob = await downloadResponse.blob()
+    const arrayBuffer = await blob.arrayBuffer()
+    const buffer = Buffer.from(arrayBuffer)
+
+    if (buffer.length === 0) {
+      console.log('[Webhook Processor] Downloaded view-once media is empty')
+      return null
+    }
+
+    // Generate unique filename using timestamp and random string
+    const timestamp = Date.now()
+    const randomStr = Math.random().toString(36).substring(2, 10)
+    const extension = getExtensionFromMimeType(contentType)
+    const filename = `viewonce_${timestamp}_${randomStr}${extension}`
+    const storagePath = `workspaces/${workspaceId}/viewonce/${filename}`
+
+    console.log('[Webhook Processor] Uploading view-once media to storage:', storagePath, 'Size:', buffer.length)
+
+    // Upload to Supabase Storage
+    const { error: uploadError } = await supabase.storage
+      .from('media')
+      .upload(storagePath, buffer, {
+        contentType,
+        upsert: true,
+      })
+
+    if (uploadError) {
+      console.error('[Webhook Processor] View-once storage upload failed:', uploadError)
+      return null
+    }
+
+    // Get public URL
+    const { data: urlData } = supabase.storage
+      .from('media')
+      .getPublicUrl(storagePath)
+
+    console.log('[Webhook Processor] View-once media stored successfully:', urlData.publicUrl)
+
+    return {
+      url: urlData.publicUrl,
+      metadata: {
+        ...existingMetadata,
+        mime_type: contentType,
+        size: buffer.length,
+        stored: true,
+        is_view_once: true,
+        original_url: mediaUrl,
+      },
+      storagePath,
+    }
+  } catch (error) {
+    console.error('[Webhook Processor] Error in forceDownloadAndStore:', error)
     return null
   }
 }
