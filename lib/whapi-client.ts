@@ -54,7 +54,9 @@ export interface WhapiError {
 // Contact types
 export interface WhapiContact {
   id: string
-  name: string
+  name?: string
+  pushname?: string
+  saved?: boolean
   type?: string
   // Additional fields that may be returned by Whapi
   [key: string]: any
@@ -316,31 +318,10 @@ export class WhapiClient {
   // ==========================================================================
 
   /**
-   * Fetch contacts from Google Contacts via Whapi integration
-   * @param googleToken - The Google Contacts connection token from Whapi
+   * Note: Google Contacts integration only supports ADDING contacts.
+   * To fetch contacts, use the regular getContacts() method which returns
+   * all WhatsApp contacts including saved ones (marked with saved: true).
    */
-  async getGoogleContacts(googleToken: string): Promise<WhapiContact[]> {
-    // Try to get contacts via Google People integration
-    const response = await fetch('https://tools.whapi.cloud/integrations/google_people/getContacts', {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${this.token}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        token: googleToken,
-      }),
-    })
-
-    if (!response.ok) {
-      // If getContacts doesn't exist, fall back to regular contacts
-      console.log('Google Contacts getContacts endpoint not available, using regular /contacts')
-      return this.getContacts()
-    }
-
-    const data = await response.json()
-    return data.contacts || []
-  }
 
   /**
    * Add contacts to Google Contacts via Whapi integration

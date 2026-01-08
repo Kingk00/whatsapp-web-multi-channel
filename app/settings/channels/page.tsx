@@ -279,7 +279,7 @@ export default function ChannelSettingsPage() {
                       </div>
                     )}
                     <p className="mt-1 text-xs text-gray-500">
-                      Get this token from Whapi&apos;s Google Contacts integration panel. Required for syncing contacts.
+                      Get this token from Whapi&apos;s Google Contacts integration panel. Required for pushing new contacts to Google Contacts.
                     </p>
                   </div>
                 )}
@@ -292,7 +292,7 @@ export default function ChannelSettingsPage() {
                 )}
 
                 {/* Sync Button */}
-                {syncSettings?.sync_channel_id && syncSettings?.google_contacts_token && (
+                {syncSettings?.sync_channel_id && (
                   <div className="flex items-center gap-4">
                     <Button
                       onClick={() => syncContacts.mutate(syncSettings.sync_channel_id!)}

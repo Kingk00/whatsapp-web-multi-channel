@@ -232,10 +232,6 @@ export async function syncContactsFromWhapi(
 
   const supabase = createServiceRoleClient()
 
-  // Get workspace settings to check for Google Contacts token
-  const syncSettings = await getWorkspaceSyncSettings(workspaceId)
-  const googleContactsToken = syncSettings?.google_contacts_token
-
   // Get channel token
   const { data: tokenRow } = await supabase
     .from('channel_tokens')
@@ -258,16 +254,12 @@ export async function syncContactsFromWhapi(
     return result
   }
 
-  // Fetch contacts from Whapi (using Google Contacts if token available)
+  // Fetch contacts from Whapi
+  // Note: Google Contacts token is only used for ADDING contacts, not fetching
+  // The regular /contacts endpoint returns all WhatsApp contacts
   let whapiContacts: WhapiContact[]
   try {
-    if (googleContactsToken) {
-      // Use Google Contacts integration
-      whapiContacts = await whapiClient.getGoogleContacts(googleContactsToken)
-    } else {
-      // Fall back to direct Whapi contacts API
-      whapiContacts = await whapiClient.getContacts()
-    }
+    whapiContacts = await whapiClient.getContacts()
   } catch (error: any) {
     result.errors.push(`Failed to fetch contacts from Whapi: ${error?.message || 'Unknown error'}`)
     return result
@@ -304,9 +296,12 @@ export async function syncContactsFromWhapi(
 
   // Process each Whapi contact
   for (const whapiContact of whapiContacts) {
+    // Get display name from name (saved contacts) or pushname (WhatsApp profile name)
+    const contactName = whapiContact.name || whapiContact.pushname
+
     try {
-      // Skip contacts without name or id
-      if (!whapiContact.id || !whapiContact.name) {
+      // Skip contacts without id or any name
+      if (!whapiContact.id || !contactName) {
         result.skipped++
         continue
       }
@@ -315,11 +310,11 @@ export async function syncContactsFromWhapi(
       const existingByWhapi = existingByWhapiId.get(whapiContact.id)
       if (existingByWhapi) {
         // Update name if changed
-        if (existingByWhapi.display_name !== whapiContact.name) {
+        if (existingByWhapi.display_name !== contactName) {
           await supabase
             .from('contacts')
             .update({
-              display_name: whapiContact.name,
+              display_name: contactName,
               whapi_synced_at: new Date().toISOString(),
             })
             .eq('id', existingByWhapi.id)
@@ -357,7 +352,7 @@ export async function syncContactsFromWhapi(
           .from('contacts')
           .insert({
             workspace_id: workspaceId,
-            display_name: whapiContact.name,
+            display_name: contactName,
             phone_numbers: [
               {
                 number: normalizedPhone,
@@ -373,7 +368,7 @@ export async function syncContactsFromWhapi(
           .single()
 
         if (insertError) {
-          result.errors.push(`Failed to create contact ${whapiContact.name}: ${insertError.message}`)
+          result.errors.push(`Failed to create contact ${contactName}: ${insertError.message}`)
         } else if (newContact) {
           // Create phone lookup entry
           const phoneHashForLookup = hashPhoneE164(normalizedPhone)
@@ -391,7 +386,7 @@ export async function syncContactsFromWhapi(
         result.skipped++
       }
     } catch (err: any) {
-      result.errors.push(`Error processing contact ${whapiContact.name}: ${err?.message || 'Unknown error'}`)
+      result.errors.push(`Error processing contact ${contactName}: ${err?.message || 'Unknown error'}`)
     }
   }
 
