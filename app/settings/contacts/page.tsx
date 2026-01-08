@@ -57,21 +57,20 @@ function ContactsSettingsContent() {
   const { addToast } = useToast()
   const queryClient = useQueryClient()
 
+  // Track if we need to trigger initial sync
+  const [pendingInitialSync, setPendingInitialSync] = useState(false)
+
   // Handle Google OAuth callback results
   useEffect(() => {
-    const googleImport = searchParams.get('google_import')
+    const googleConnected = searchParams.get('google_connected')
     const error = searchParams.get('error')
-    const imported = searchParams.get('imported')
-    const skipped = searchParams.get('skipped')
 
-    if (googleImport === 'success' && imported) {
-      addToast(
-        `Imported ${imported} contacts from Google${skipped ? ` (${skipped} skipped)` : ''}`,
-        'success'
-      )
-      queryClient.invalidateQueries({ queryKey: ['contacts'] })
+    if (googleConnected === 'true') {
+      addToast('Google account connected! Starting sync...', 'success')
       // Clean up URL
       window.history.replaceState({}, '', '/settings/contacts')
+      // Mark that we need to trigger sync (will be done after refetchSyncStatus is available)
+      setPendingInitialSync(true)
     } else if (error) {
       const errorMessages: Record<string, string> = {
         oauth_denied: 'Google import was cancelled',
@@ -85,7 +84,7 @@ function ContactsSettingsContent() {
       addToast(errorMessages[error] || 'Google import failed', 'error')
       window.history.replaceState({}, '', '/settings/contacts')
     }
-  }, [searchParams, addToast, queryClient])
+  }, [searchParams, addToast])
 
   // Check if Google OAuth is configured
   const { data: googleConfig } = useQuery({
@@ -105,8 +104,76 @@ function ContactsSettingsContent() {
       if (!response.ok) return null
       return response.json()
     },
-    refetchInterval: 60000, // Refresh every minute
+    // Poll every 2 seconds when syncing, otherwise every minute
+    refetchInterval: isSyncing ? 2000 : 60000,
   })
+
+  // Trigger background sync (fire and forget)
+  const triggerBackgroundSync = useCallback(async () => {
+    setIsSyncing(true)
+    try {
+      const response = await fetch('/api/contacts/sync/google', {
+        method: 'POST',
+      })
+      const data = await response.json()
+
+      if (response.status === 409) {
+        // Already syncing, that's fine
+        return
+      }
+
+      if (!response.ok) {
+        throw new Error(data.error || 'Sync failed')
+      }
+    } catch (error) {
+      // Don't show error here, we'll poll for status
+      console.error('Sync trigger error:', error)
+    }
+    // Start polling for status
+    refetchSyncStatus()
+  }, [refetchSyncStatus])
+
+  // Handle pending initial sync after Google connect
+  useEffect(() => {
+    if (pendingInitialSync) {
+      setPendingInitialSync(false)
+      triggerBackgroundSync()
+    }
+  }, [pendingInitialSync, triggerBackgroundSync])
+
+  // Watch sync status and update local state
+  useEffect(() => {
+    if (!googleSyncStatus) return
+
+    const status = googleSyncStatus.sync_status
+
+    if (status === 'syncing') {
+      setIsSyncing(true)
+    } else if (status === 'completed' && isSyncing) {
+      setIsSyncing(false)
+      // Show completion toast
+      const result = googleSyncStatus.last_sync_result
+      if (result) {
+        const pulled = result.pulled ?? 0
+        const pushed = result.pushed ?? 0
+        const updated = result.updated ?? 0
+        addToast(
+          `Sync complete: ${pulled} pulled, ${pushed} pushed, ${updated} updated`,
+          'success'
+        )
+      } else {
+        addToast('Google sync completed', 'success')
+      }
+      queryClient.invalidateQueries({ queryKey: ['contacts'] })
+    } else if (status === 'error' && isSyncing) {
+      setIsSyncing(false)
+      addToast(googleSyncStatus.sync_error || 'Sync failed', 'error')
+    } else if (!status && !isSyncing) {
+      // No sync status yet (first time), keep idle
+    } else if (status !== 'syncing') {
+      setIsSyncing(false)
+    }
+  }, [googleSyncStatus, isSyncing, addToast, queryClient])
 
   const handleGoogleImport = async () => {
     setGoogleImportLoading(true)
@@ -347,6 +414,8 @@ function ContactsSettingsContent() {
 
   // Google sync handlers
   const handleSyncNow = async () => {
+    if (isSyncing) return
+
     setIsSyncing(true)
     try {
       const response = await fetch('/api/contacts/sync/google', {
@@ -354,25 +423,24 @@ function ContactsSettingsContent() {
       })
       const data = await response.json()
 
+      if (response.status === 409) {
+        // Already syncing
+        addToast('Sync already in progress...', 'info')
+        return
+      }
+
       if (!response.ok) {
+        setIsSyncing(false)
         throw new Error(data.error || 'Sync failed')
       }
 
-      const pulled = data.result.pulled ?? data.result.created ?? 0
-      const pushed = data.result.pushed ?? 0
-      const updated = data.result.updated ?? 0
-      addToast(
-        `Synced: ${pulled} pulled from Google, ${pushed} pushed to Google, ${updated} updated`,
-        'success'
-      )
-      queryClient.invalidateQueries({ queryKey: ['contacts'] })
-      refetchSyncStatus()
+      // Sync started - poll for status (the useEffect will handle completion)
+      addToast('Syncing with Google...', 'info')
     } catch (error) {
       addToast(
         error instanceof Error ? error.message : 'Sync failed',
         'error'
       )
-    } finally {
       setIsSyncing(false)
     }
   }

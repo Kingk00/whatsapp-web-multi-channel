@@ -50,12 +50,22 @@ export async function GET() {
     const hasToken = !!integration?.config?.encrypted_refresh_token
     const isConfigured = !!GOOGLE_CLIENT_ID && !!GOOGLE_CLIENT_SECRET
     const connectedEmail = integration?.config?.connected_email || null
+    const syncStatus = integration?.config?.sync_status || null
+    const syncStartedAt = integration?.config?.sync_started_at || null
+    const syncCompletedAt = integration?.config?.sync_completed_at || null
+    const syncError = integration?.config?.sync_error || null
+    const lastSyncResult = integration?.config?.last_sync_result || null
 
     return NextResponse.json({
       configured: isConfigured,
       connected: hasToken && integration?.is_active,
       last_synced: integration?.updated_at,
       connected_email: connectedEmail,
+      sync_status: syncStatus,
+      sync_started_at: syncStartedAt,
+      sync_completed_at: syncCompletedAt,
+      sync_error: syncError,
+      last_sync_result: lastSyncResult,
     })
   } catch (error) {
     if (error instanceof Response) {
@@ -108,9 +118,43 @@ export async function POST(request: NextRequest) {
       )
     }
 
+    // Check if already syncing
+    if (integration.config.sync_status === 'syncing') {
+      return NextResponse.json(
+        { error: 'Sync already in progress', syncing: true },
+        { status: 409 }
+      )
+    }
+
+    // Set sync status to 'syncing'
+    await supabase
+      .from('workspace_integrations')
+      .update({
+        config: {
+          ...integration.config,
+          sync_status: 'syncing',
+          sync_started_at: new Date().toISOString(),
+        },
+      })
+      .eq('workspace_id', profile.workspace_id)
+      .eq('provider', 'google_contacts')
+
     // Decrypt refresh token
     const refreshToken = decryptToken(integration.config.encrypted_refresh_token)
     if (!refreshToken) {
+      // Reset sync status on error
+      await supabase
+        .from('workspace_integrations')
+        .update({
+          config: {
+            ...integration.config,
+            sync_status: 'error',
+            sync_error: 'Failed to decrypt token',
+            sync_completed_at: new Date().toISOString(),
+          },
+        })
+        .eq('workspace_id', profile.workspace_id)
+        .eq('provider', 'google_contacts')
       return NextResponse.json(
         { error: 'Failed to decrypt token. Please reconnect Google.' },
         { status: 400 }
@@ -131,6 +175,19 @@ export async function POST(request: NextRequest) {
 
     if (!tokenResponse.ok) {
       console.error('Token refresh failed:', await tokenResponse.text())
+      // Reset sync status on error
+      await supabase
+        .from('workspace_integrations')
+        .update({
+          config: {
+            ...integration.config,
+            sync_status: 'error',
+            sync_error: 'Failed to refresh Google token',
+            sync_completed_at: new Date().toISOString(),
+          },
+        })
+        .eq('workspace_id', profile.workspace_id)
+        .eq('provider', 'google_contacts')
       return NextResponse.json(
         { error: 'Failed to refresh Google token. Please reconnect Google.' },
         { status: 400 }
@@ -379,28 +436,68 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // Update last sync time
+    // Update sync status to completed
+    const syncResult = {
+      pulled,
+      pushed,
+      updated,
+      skipped: skippedPull + skippedPush,
+      errors: errors.length > 0 ? errors : undefined,
+    }
+
     await supabase
       .from('workspace_integrations')
-      .update({ updated_at: new Date().toISOString() })
+      .update({
+        updated_at: new Date().toISOString(),
+        config: {
+          ...integration.config,
+          sync_status: 'completed',
+          sync_completed_at: new Date().toISOString(),
+          last_sync_result: syncResult,
+        },
+      })
       .eq('workspace_id', profile.workspace_id)
       .eq('provider', 'google_contacts')
 
     return NextResponse.json({
       success: true,
-      result: {
-        pulled,
-        pushed,
-        updated,
-        skipped: skippedPull + skippedPush,
-        errors: errors.length > 0 ? errors : undefined,
-      },
+      result: syncResult,
     })
   } catch (error) {
     if (error instanceof Response) {
       return error
     }
     console.error('Google contacts sync error:', error)
+
+    // Try to update sync status to error
+    try {
+      const supabase = createServiceRoleClient()
+      const { profile } = await validateApiAuth()
+      const { data: integration } = await supabase
+        .from('workspace_integrations')
+        .select('config')
+        .eq('workspace_id', profile.workspace_id)
+        .eq('provider', 'google_contacts')
+        .single()
+
+      if (integration) {
+        await supabase
+          .from('workspace_integrations')
+          .update({
+            config: {
+              ...integration.config,
+              sync_status: 'error',
+              sync_error: error instanceof Error ? error.message : 'Unknown error',
+              sync_completed_at: new Date().toISOString(),
+            },
+          })
+          .eq('workspace_id', profile.workspace_id)
+          .eq('provider', 'google_contacts')
+      }
+    } catch (e) {
+      // Ignore status update errors
+    }
+
     return NextResponse.json(
       { error: 'Internal server error' },
       { status: 500 }

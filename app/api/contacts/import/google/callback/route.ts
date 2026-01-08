@@ -1,10 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createServiceRoleClient } from '@/lib/supabase/server'
 import { createHash, randomBytes, createCipheriv } from 'crypto'
-import { normalizePhoneNumber } from '@/lib/phone-utils'
 
 export const dynamic = 'force-dynamic'
-export const maxDuration = 300 // 5 minutes for large contact imports
 
 const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID
 const GOOGLE_CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET
@@ -18,20 +16,6 @@ interface GoogleTokenResponse {
   expires_in: number
   token_type: string
   scope: string
-}
-
-interface GoogleContact {
-  resourceName: string
-  names?: { displayName?: string; givenName?: string; familyName?: string }[]
-  phoneNumbers?: { value?: string; type?: string }[]
-  emailAddresses?: { value?: string; type?: string }[]
-  photos?: { url?: string }[]
-}
-
-interface GoogleContactsResponse {
-  connections?: GoogleContact[]
-  totalItems?: number
-  nextPageToken?: string
 }
 
 /**
@@ -121,95 +105,9 @@ export async function GET(request: NextRequest) {
       console.error('Failed to fetch user info:', e)
     }
 
-    // Fetch contacts from Google People API
-    const contacts = await fetchGoogleContacts(tokens.access_token)
-
-    // Import contacts into database
+    // Store refresh token for background sync (don't import synchronously)
     const supabase = createServiceRoleClient()
-    let importedCount = 0
-    let skippedCount = 0
 
-    for (const contact of contacts) {
-      const displayName = contact.names?.[0]?.displayName ||
-        contact.names?.[0]?.givenName ||
-        'Unnamed Contact'
-
-      const phoneNumbers = (contact.phoneNumbers || [])
-        .filter((p) => p.value)
-        .map((p) => ({
-          number: p.value!,
-          type: p.type || 'mobile',
-          normalized: normalizePhoneNumber(p.value!),
-        }))
-
-      const emailAddresses = (contact.emailAddresses || [])
-        .filter((e) => e.value)
-        .map((e) => ({
-          email: e.value!,
-          type: e.type || 'personal',
-        }))
-
-      // Skip contacts without phone numbers
-      if (phoneNumbers.length === 0) {
-        skippedCount++
-        continue
-      }
-
-      // Check if contact already exists (by phone number)
-      const existingContact = await findExistingContact(
-        supabase,
-        stateData.workspace_id,
-        phoneNumbers.map((p) => p.normalized).filter(Boolean) as string[]
-      )
-
-      if (existingContact) {
-        skippedCount++
-        continue
-      }
-
-      // Create contact
-      const { data: newContact, error: createError } = await supabase
-        .from('contacts')
-        .insert({
-          workspace_id: stateData.workspace_id,
-          display_name: displayName,
-          phone_numbers: phoneNumbers,
-          email_addresses: emailAddresses,
-          source: 'google',
-          source_metadata: {
-            google_resource_name: contact.resourceName,
-            imported_by: stateData.user_id,
-            imported_at: new Date().toISOString(),
-          },
-        })
-        .select()
-        .single()
-
-      if (createError) {
-        console.error('Error creating contact:', createError)
-        continue
-      }
-
-      // Create phone lookup entries
-      if (newContact && phoneNumbers.length > 0) {
-        const phoneEntries = phoneNumbers
-          .filter((p) => p.normalized)
-          .map((p) => ({
-            contact_id: newContact.id,
-            phone_e164: p.normalized,
-            phone_e164_hash: hashPhone(p.normalized!),
-            phone_type: p.type,
-          }))
-
-        if (phoneEntries.length > 0) {
-          await supabase.from('contact_phone_lookup').insert(phoneEntries)
-        }
-      }
-
-      importedCount++
-    }
-
-    // Store refresh token if available (for future sync)
     if (tokens.refresh_token && ENCRYPTION_KEY) {
       await storeRefreshToken(
         supabase,
@@ -219,10 +117,10 @@ export async function GET(request: NextRequest) {
       )
     }
 
-    // Redirect back to contacts page with success message
+    // Redirect immediately - UI will trigger background sync
     return NextResponse.redirect(
       new URL(
-        `/settings/contacts?google_import=success&imported=${importedCount}&skipped=${skippedCount}`,
+        `/settings/contacts?google_connected=true`,
         request.url
       )
     )
@@ -232,64 +130,6 @@ export async function GET(request: NextRequest) {
       new URL(`/settings/contacts?error=internal_error`, request.url)
     )
   }
-}
-
-/**
- * Fetch all contacts from Google People API
- */
-async function fetchGoogleContacts(accessToken: string): Promise<GoogleContact[]> {
-  const contacts: GoogleContact[] = []
-  let pageToken: string | undefined
-
-  do {
-    const url = new URL('https://people.googleapis.com/v1/people/me/connections')
-    url.searchParams.set('personFields', 'names,phoneNumbers,emailAddresses,photos')
-    url.searchParams.set('pageSize', '1000')
-    if (pageToken) {
-      url.searchParams.set('pageToken', pageToken)
-    }
-
-    const response = await fetch(url.toString(), {
-      headers: {
-        Authorization: `Bearer ${accessToken}`,
-      },
-    })
-
-    if (!response.ok) {
-      console.error('Google People API error:', await response.text())
-      break
-    }
-
-    const data: GoogleContactsResponse = await response.json()
-    if (data.connections) {
-      contacts.push(...data.connections)
-    }
-    pageToken = data.nextPageToken
-  } while (pageToken)
-
-  return contacts
-}
-
-/**
- * Find existing contact by phone numbers
- */
-async function findExistingContact(
-  supabase: ReturnType<typeof createServiceRoleClient>,
-  workspaceId: string,
-  phoneNumbers: string[]
-): Promise<boolean> {
-  if (phoneNumbers.length === 0) return false
-
-  const hashes = phoneNumbers.map(hashPhone)
-
-  const { data } = await supabase
-    .from('contact_phone_lookup')
-    .select('contact_id, contacts!inner(workspace_id)')
-    .in('phone_e164_hash', hashes)
-    .eq('contacts.workspace_id', workspaceId)
-    .limit(1)
-
-  return (data?.length || 0) > 0
 }
 
 /**
@@ -335,11 +175,4 @@ function encryptToken(token: string): string {
   const authTag = cipher.getAuthTag()
 
   return `${iv.toString('hex')}:${authTag.toString('hex')}:${encrypted}`
-}
-
-/**
- * Hash phone number for lookups
- */
-function hashPhone(phone: string): string {
-  return createHash('sha256').update(phone).digest('hex')
 }
