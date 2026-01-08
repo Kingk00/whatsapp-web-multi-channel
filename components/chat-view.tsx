@@ -858,17 +858,20 @@ interface ViewOnceState {
   }
 }
 
+interface QuickReplyAttachment {
+  id: string
+  kind: string
+  filename: string
+  url?: string
+  storage_path?: string
+}
+
 interface QuickReply {
   id: string
   shortcut: string
   title: string | null
   text_body: string | null
-  attachments?: Array<{
-    id: string
-    kind: string
-    filename: string
-    url?: string
-  }>
+  attachments?: QuickReplyAttachment[]
 }
 
 function MessageComposer({
@@ -887,6 +890,7 @@ function MessageComposer({
   const [showQuickReplies, setShowQuickReplies] = useState(false)
   const [quickReplyFilter, setQuickReplyFilter] = useState('')
   const [selectedQuickReplyIndex, setSelectedQuickReplyIndex] = useState(0)
+  const [quickReplyAttachments, setQuickReplyAttachments] = useState<QuickReplyAttachment[]>([])
   const inputRef = useRef<HTMLTextAreaElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const quickReplyRef = useRef<HTMLDivElement>(null)
@@ -1086,17 +1090,68 @@ function MessageComposer({
     },
   })
 
-  const handleSend = () => {
-    if (sendTextMutation.isPending || sendMediaMutation.isPending) return
+  // Send quick reply media by URL
+  const sendQuickReplyMediaMutation = useMutation({
+    mutationFn: async ({ mediaUrl, caption, mediaType }: { mediaUrl: string; caption: string; mediaType: string }) => {
+      const response = await fetch(`/api/chats/${chatId}/messages/media`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          media_url: mediaUrl,
+          caption: caption || undefined,
+          media_type: mediaType,
+        }),
+      })
+      if (!response.ok) {
+        const error = await response.json()
+        throw new Error(error.error || 'Failed to send media')
+      }
+      return response.json()
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.messages.list(chatId) })
+      queryClient.invalidateQueries({ queryKey: queryKeys.chats.all })
+    },
+    onError: (error: Error) => {
+      addToast(error.message || 'Failed to send media', 'error')
+    },
+  })
+
+  const handleSend = async () => {
+    if (sendTextMutation.isPending || sendMediaMutation.isPending || sendQuickReplyMediaMutation.isPending) return
+
+    const trimmedText = text.trim()
+
+    // Handle quick reply attachments
+    if (quickReplyAttachments.length > 0) {
+      // Send text first if any
+      if (trimmedText) {
+        sendTextMutation.mutate(trimmedText)
+      }
+      // Send each attachment
+      for (const attachment of quickReplyAttachments) {
+        if (attachment.url) {
+          await sendQuickReplyMediaMutation.mutateAsync({
+            mediaUrl: attachment.url,
+            caption: '', // Caption already sent as text
+            mediaType: attachment.kind,
+          })
+        }
+      }
+      setText('')
+      clearDraft(chatId)
+      clearQuickReplyAttachments()
+      addToast('Quick reply sent', 'success')
+      return
+    }
 
     if (selectedFile) {
       sendMediaMutation.mutate({
         file: selectedFile.file,
-        caption: text.trim(),
+        caption: trimmedText,
         viewOnce: isViewOnce && (selectedFile.type === 'image' || selectedFile.type === 'video'),
       })
     } else {
-      const trimmedText = text.trim()
       if (!trimmedText) return
       sendTextMutation.mutate(trimmedText)
     }
@@ -1125,9 +1180,23 @@ function MessageComposer({
   const selectQuickReply = (qr: QuickReply) => {
     // Insert the quick reply text
     setText(qr.text_body || '')
+    // Set quick reply attachments if any
+    if (qr.attachments && qr.attachments.length > 0) {
+      setQuickReplyAttachments(qr.attachments)
+      // Clear any manually selected file
+      if (selectedFile?.preview) {
+        URL.revokeObjectURL(selectedFile.preview)
+      }
+      setSelectedFile(null)
+    }
     setShowQuickReplies(false)
     setQuickReplyFilter('')
     inputRef.current?.focus()
+  }
+
+  // Clear quick reply attachments
+  const clearQuickReplyAttachments = () => {
+    setQuickReplyAttachments([])
   }
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
@@ -1175,8 +1244,8 @@ function MessageComposer({
     }
   }, [text])
 
-  const isPending = sendTextMutation.isPending || sendMediaMutation.isPending
-  const canSend = selectedFile || text.trim()
+  const isPending = sendTextMutation.isPending || sendMediaMutation.isPending || sendQuickReplyMediaMutation.isPending
+  const canSend = selectedFile || text.trim() || quickReplyAttachments.length > 0
 
   return (
     <div className="border-t border-border bg-card p-3 md:p-4">
@@ -1269,6 +1338,62 @@ function MessageComposer({
               </label>
             </div>
           )}
+        </div>
+      )}
+
+      {/* Quick reply attachments preview */}
+      {quickReplyAttachments.length > 0 && (
+        <div className="mb-2">
+          <div className="flex items-center gap-2 flex-wrap">
+            {quickReplyAttachments.map((attachment, index) => (
+              <div key={attachment.id} className="relative">
+                {attachment.kind === 'image' && attachment.url && (
+                  <img
+                    src={attachment.url}
+                    alt={attachment.filename}
+                    className="h-20 w-20 object-cover rounded-lg border border-green-300 ring-2 ring-green-100"
+                  />
+                )}
+                {attachment.kind === 'video' && attachment.url && (
+                  <div className="h-20 w-20 rounded-lg border border-green-300 ring-2 ring-green-100 bg-gray-100 flex items-center justify-center">
+                    <svg className="h-8 w-8 text-green-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z" />
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                    </svg>
+                  </div>
+                )}
+                {attachment.kind === 'audio' && (
+                  <div className="h-20 px-3 rounded-lg border border-green-300 ring-2 ring-green-100 bg-gray-100 flex items-center gap-2">
+                    <svg className="h-6 w-6 text-green-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19V6l12-3v13M9 19c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zm12-3c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zM9 10l12-3" />
+                    </svg>
+                    <span className="text-xs text-gray-600 truncate max-w-[80px]">{attachment.filename}</span>
+                  </div>
+                )}
+                {attachment.kind === 'document' && (
+                  <div className="h-20 px-3 rounded-lg border border-green-300 ring-2 ring-green-100 bg-gray-100 flex items-center gap-2">
+                    <svg className="h-6 w-6 text-green-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z" />
+                    </svg>
+                    <span className="text-xs text-gray-600 truncate max-w-[80px]">{attachment.filename}</span>
+                  </div>
+                )}
+              </div>
+            ))}
+            {/* Remove all button */}
+            <button
+              onClick={clearQuickReplyAttachments}
+              className="h-8 px-2 bg-red-100 text-red-600 rounded-lg text-xs font-medium hover:bg-red-200 flex items-center gap-1"
+            >
+              <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+              </svg>
+              Clear
+            </button>
+          </div>
+          <p className="text-xs text-green-600 mt-1">
+            Quick reply: {quickReplyAttachments.length} attachment{quickReplyAttachments.length > 1 ? 's' : ''}
+          </p>
         </div>
       )}
 

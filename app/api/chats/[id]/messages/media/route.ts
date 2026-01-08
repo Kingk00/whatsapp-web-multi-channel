@@ -5,10 +5,18 @@ import { createClient, createServiceRoleClient } from '@/lib/supabase/server'
  * POST /api/chats/[id]/messages/media
  *
  * Send a media message (image, video, audio, document)
- * Uses Whapi's base64 upload approach for immediate sending.
+ * Supports two modes:
+ * 1. File upload: Uses base64 encoding for immediate sending
+ * 2. URL: Sends media from an existing URL (for quick replies)
  *
- * FormData:
+ * FormData (file upload):
  * - file: The media file
+ * - caption: Optional caption text
+ * - view_once: Optional boolean for view-once media
+ *
+ * JSON (URL mode):
+ * - media_url: URL of the media to send
+ * - media_type: Type of media (image, video, audio, document)
  * - caption: Optional caption text
  */
 export async function POST(
@@ -29,18 +37,40 @@ export async function POST(
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
 
-    // Parse FormData
-    const formData = await request.formData()
-    const file = formData.get('file') as File | null
-    const caption = formData.get('caption') as string | null
-    const viewOnce = formData.get('view_once') === 'true'
+    // Check content type to determine if it's a file upload or URL mode
+    const contentType = request.headers.get('content-type') || ''
+    const isJsonRequest = contentType.includes('application/json')
 
-    if (!file) {
-      return NextResponse.json({ error: 'File is required' }, { status: 400 })
+    let file: File | null = null
+    let caption: string | null = null
+    let viewOnce = false
+    let mediaUrl: string | null = null
+    let mediaTypeOverride: string | null = null
+
+    if (isJsonRequest) {
+      // URL mode - parse JSON body
+      const body = await request.json()
+      mediaUrl = body.media_url
+      caption = body.caption
+      mediaTypeOverride = body.media_type
+
+      if (!mediaUrl) {
+        return NextResponse.json({ error: 'media_url is required' }, { status: 400 })
+      }
+    } else {
+      // File upload mode - parse FormData
+      const formData = await request.formData()
+      file = formData.get('file') as File | null
+      caption = formData.get('caption') as string | null
+      viewOnce = formData.get('view_once') === 'true'
+
+      if (!file) {
+        return NextResponse.json({ error: 'File is required' }, { status: 400 })
+      }
     }
 
-    // Validate file size (50MB max)
-    if (file.size > 50 * 1024 * 1024) {
+    // Validate file size (50MB max) - only for file uploads
+    if (file && file.size > 50 * 1024 * 1024) {
       return NextResponse.json(
         { error: 'File size must be less than 50MB' },
         { status: 400 }
@@ -59,18 +89,45 @@ export async function POST(
     }
 
     // Determine media type
-    const mediaType = getMediaType(file.type)
-    if (!mediaType) {
-      return NextResponse.json(
-        { error: 'Unsupported file type' },
-        { status: 400 }
-      )
-    }
+    let mediaType: string | null
+    let mediaData: string // Either base64 or URL
+    let filename: string = 'media'
 
-    // Convert file to base64
-    const arrayBuffer = await file.arrayBuffer()
-    const base64 = Buffer.from(arrayBuffer).toString('base64')
-    const base64DataUrl = `data:${file.type};base64,${base64}`
+    if (file) {
+      // File upload mode
+      mediaType = getMediaType(file.type)
+      if (!mediaType) {
+        return NextResponse.json(
+          { error: 'Unsupported file type' },
+          { status: 400 }
+        )
+      }
+      filename = file.name
+
+      // Convert file to base64
+      const arrayBuffer = await file.arrayBuffer()
+      const base64 = Buffer.from(arrayBuffer).toString('base64')
+      mediaData = `data:${file.type};base64,${base64}`
+    } else if (mediaUrl) {
+      // URL mode
+      mediaType = mediaTypeOverride || inferMediaTypeFromUrl(mediaUrl)
+      if (!mediaType) {
+        return NextResponse.json(
+          { error: 'Could not determine media type. Please provide media_type.' },
+          { status: 400 }
+        )
+      }
+      mediaData = mediaUrl
+      // Extract filename from URL if possible
+      try {
+        const urlPath = new URL(mediaUrl).pathname
+        filename = urlPath.split('/').pop() || 'media'
+      } catch {
+        filename = 'media'
+      }
+    } else {
+      return NextResponse.json({ error: 'No media provided' }, { status: 400 })
+    }
 
     // Get API token directly from channels table (bloe-engine approach)
     // DO NOT CHANGE: See IMPLEMENTATION_NOTES.md
@@ -107,10 +164,14 @@ export async function POST(
         status: 'pending',
         sender_user_id: user.id,
         is_view_once: isViewOnce,
-        media_metadata: {
+        media_url: mediaUrl || null, // Store original URL if provided
+        media_metadata: file ? {
           filename: file.name,
           size: file.size,
           mime_type: file.type,
+        } : {
+          filename: filename,
+          source: 'quick_reply',
         },
         created_at: new Date().toISOString(),
       })
@@ -123,7 +184,7 @@ export async function POST(
 
     // Send media via Whapi API
     const whapiEndpoint = getWhapiEndpoint(mediaType)
-    const whapiPayload = buildWhapiPayload(mediaType, chat.wa_chat_id, base64DataUrl, caption, file.name, isViewOnce)
+    const whapiPayload = buildWhapiPayload(mediaType, chat.wa_chat_id, mediaData, caption, filename, isViewOnce)
 
     const whapiResponse = await fetch(whapiEndpoint, {
       method: 'POST',
@@ -207,6 +268,26 @@ function getMediaType(mimeType: string): string | null {
     return 'document'
   }
   return null
+}
+
+/**
+ * Infer media type from URL extension
+ */
+function inferMediaTypeFromUrl(url: string): string | null {
+  try {
+    const pathname = new URL(url).pathname.toLowerCase()
+    // Image extensions
+    if (/\.(jpg|jpeg|png|gif|webp|bmp)$/.test(pathname)) return 'image'
+    // Video extensions
+    if (/\.(mp4|webm|mov|avi|mkv)$/.test(pathname)) return 'video'
+    // Audio extensions
+    if (/\.(mp3|wav|ogg|m4a|aac|flac)$/.test(pathname)) return 'audio'
+    // Document extensions
+    if (/\.(pdf|doc|docx|xls|xlsx|txt|csv)$/.test(pathname)) return 'document'
+    return null
+  } catch {
+    return null
+  }
 }
 
 /**

@@ -66,7 +66,22 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'Failed to fetch quick replies' }, { status: 500 })
     }
 
-    return NextResponse.json({ quickReplies })
+    // Generate public URLs for attachments
+    const quickRepliesWithUrls = quickReplies?.map((qr) => ({
+      ...qr,
+      attachments: qr.attachments?.map((att: { id: string; kind: string; storage_path: string; filename: string; mime_type: string; sort_order: number }) => {
+        // Generate the public URL from storage path
+        const url = att.storage_path
+          ? supabase.storage.from('attachments').getPublicUrl(att.storage_path).data.publicUrl
+          : null
+        return {
+          ...att,
+          url,
+        }
+      }),
+    }))
+
+    return NextResponse.json({ quickReplies: quickRepliesWithUrls })
   } catch (error) {
     console.error('Quick replies GET error:', error)
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
