@@ -15,6 +15,7 @@ import { useRouter } from 'next/navigation'
 import { useEffect, useCallback, useRef } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { queryKeys } from '@/lib/query-client'
+import type { AuthChangeEvent, Session } from '@supabase/supabase-js'
 
 // Inactivity timeout in milliseconds (15 minutes)
 const INACTIVITY_TIMEOUT = 15 * 60 * 1000
@@ -113,7 +114,7 @@ export function useAuth(): AuthState & {
   useEffect(() => {
     const {
       data: { subscription },
-    } = supabase.auth.onAuthStateChange((event, session) => {
+    } = supabase.auth.onAuthStateChange((event: AuthChangeEvent, session: Session | null) => {
       if (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED') {
         queryClient.invalidateQueries({ queryKey: queryKeys.auth.user })
         queryClient.invalidateQueries({ queryKey: queryKeys.auth.profile })
