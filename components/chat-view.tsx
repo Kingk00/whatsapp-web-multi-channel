@@ -891,6 +891,7 @@ function MessageComposer({
   const [quickReplyFilter, setQuickReplyFilter] = useState('')
   const [selectedQuickReplyIndex, setSelectedQuickReplyIndex] = useState(0)
   const [quickReplyAttachments, setQuickReplyAttachments] = useState<QuickReplyAttachment[]>([])
+  const [quickReplyViewOnce, setQuickReplyViewOnce] = useState(false)
   const inputRef = useRef<HTMLTextAreaElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const quickReplyRef = useRef<HTMLDivElement>(null)
@@ -1092,7 +1093,7 @@ function MessageComposer({
 
   // Send quick reply media by URL
   const sendQuickReplyMediaMutation = useMutation({
-    mutationFn: async ({ mediaUrl, caption, mediaType }: { mediaUrl: string; caption: string; mediaType: string }) => {
+    mutationFn: async ({ mediaUrl, caption, mediaType, viewOnce }: { mediaUrl: string; caption: string; mediaType: string; viewOnce?: boolean }) => {
       const response = await fetch(`/api/chats/${chatId}/messages/media`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -1100,6 +1101,7 @@ function MessageComposer({
           media_url: mediaUrl,
           caption: caption || undefined,
           media_type: mediaType,
+          view_once: viewOnce || false,
         }),
       })
       if (!response.ok) {
@@ -1128,13 +1130,19 @@ function MessageComposer({
       if (trimmedText) {
         sendTextMutation.mutate(trimmedText)
       }
+      // Check if view once is enabled and applicable (only for images/videos)
+      const canUseViewOnce = quickReplyAttachments.some(
+        (att) => att.kind === 'image' || att.kind === 'video'
+      )
       // Send each attachment
       for (const attachment of quickReplyAttachments) {
         if (attachment.url) {
+          const isViewOnceEligible = attachment.kind === 'image' || attachment.kind === 'video'
           await sendQuickReplyMediaMutation.mutateAsync({
             mediaUrl: attachment.url,
             caption: '', // Caption already sent as text
             mediaType: attachment.kind,
+            viewOnce: quickReplyViewOnce && isViewOnceEligible,
           })
         }
       }
@@ -1197,6 +1205,7 @@ function MessageComposer({
   // Clear quick reply attachments
   const clearQuickReplyAttachments = () => {
     setQuickReplyAttachments([])
+    setQuickReplyViewOnce(false)
   }
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
@@ -1345,18 +1354,28 @@ function MessageComposer({
       {quickReplyAttachments.length > 0 && (
         <div className="mb-2">
           <div className="flex items-center gap-2 flex-wrap">
-            {quickReplyAttachments.map((attachment, index) => (
+            {quickReplyAttachments.map((attachment) => (
               <div key={attachment.id} className="relative">
                 {attachment.kind === 'image' && attachment.url && (
                   <img
                     src={attachment.url}
                     alt={attachment.filename}
-                    className="h-20 w-20 object-cover rounded-lg border border-green-300 ring-2 ring-green-100"
+                    className={cn(
+                      "h-20 w-20 object-cover rounded-lg border",
+                      quickReplyViewOnce
+                        ? "border-purple-400 ring-2 ring-purple-200"
+                        : "border-green-300 ring-2 ring-green-100"
+                    )}
                   />
                 )}
                 {attachment.kind === 'video' && attachment.url && (
-                  <div className="h-20 w-20 rounded-lg border border-green-300 ring-2 ring-green-100 bg-gray-100 flex items-center justify-center">
-                    <svg className="h-8 w-8 text-green-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <div className={cn(
+                    "h-20 w-20 rounded-lg border bg-gray-100 flex items-center justify-center",
+                    quickReplyViewOnce
+                      ? "border-purple-400 ring-2 ring-purple-200"
+                      : "border-green-300 ring-2 ring-green-100"
+                  )}>
+                    <svg className={cn("h-8 w-8", quickReplyViewOnce ? "text-purple-600" : "text-green-600")} fill="none" viewBox="0 0 24 24" stroke="currentColor">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z" />
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
                     </svg>
@@ -1378,6 +1397,15 @@ function MessageComposer({
                     <span className="text-xs text-gray-600 truncate max-w-[80px]">{attachment.filename}</span>
                   </div>
                 )}
+                {/* View once indicator on image/video */}
+                {quickReplyViewOnce && (attachment.kind === 'image' || attachment.kind === 'video') && (
+                  <div className="absolute bottom-1 left-1 bg-purple-600 text-white text-xs px-1.5 py-0.5 rounded-full flex items-center gap-0.5">
+                    <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                    </svg>
+                    <span>1</span>
+                  </div>
+                )}
               </div>
             ))}
             {/* Remove all button */}
@@ -1391,8 +1419,30 @@ function MessageComposer({
               Clear
             </button>
           </div>
-          <p className="text-xs text-green-600 mt-1">
+          {/* View once toggle for images/videos */}
+          {quickReplyAttachments.some((att) => att.kind === 'image' || att.kind === 'video') && (
+            <div className="mt-2">
+              <label className="flex items-center gap-2 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={quickReplyViewOnce}
+                  onChange={(e) => setQuickReplyViewOnce(e.target.checked)}
+                  className="h-4 w-4 rounded border-gray-300 text-purple-600 focus:ring-purple-500"
+                />
+                <span className="text-sm text-gray-600 flex items-center gap-1">
+                  <svg className="h-4 w-4 text-purple-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+                  </svg>
+                  View once
+                </span>
+                <span className="text-xs text-gray-400">(recipients can only view this once)</span>
+              </label>
+            </div>
+          )}
+          <p className={cn("text-xs mt-1", quickReplyViewOnce ? "text-purple-600" : "text-green-600")}>
             Quick reply: {quickReplyAttachments.length} attachment{quickReplyAttachments.length > 1 ? 's' : ''}
+            {quickReplyViewOnce && ' (view once)'}
           </p>
         </div>
       )}

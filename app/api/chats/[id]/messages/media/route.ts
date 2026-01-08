@@ -53,6 +53,7 @@ export async function POST(
       mediaUrl = body.media_url
       caption = body.caption
       mediaTypeOverride = body.media_type
+      viewOnce = body.view_once === true
 
       if (!mediaUrl) {
         return NextResponse.json({ error: 'media_url is required' }, { status: 400 })
