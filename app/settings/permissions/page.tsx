@@ -180,7 +180,7 @@ export default function PermissionsSettingsPage() {
       ROLES.forEach((role) => {
         AVAILABLE_PERMISSIONS.forEach((perm) => {
           const existing = rolePerms?.find(
-            (rp) => rp.role === role && rp.permission_key === perm.key
+            (rp: { role: string; permission_key: string; enabled: boolean }) => rp.role === role && rp.permission_key === perm.key
           )
           permMap[role].push({
             permission_key: perm.key,
