@@ -348,7 +348,11 @@ export default function TeamSettingsPage() {
               </thead>
               <tbody className="divide-y">
                 {members.map((member) => (
-                  <tr key={member.user_id}>
+                  <tr
+                    key={member.user_id}
+                    className="cursor-pointer hover:bg-muted/50 transition-colors"
+                    onClick={() => router.push(`/settings/team/${member.user_id}`)}
+                  >
                     <td className="px-4 py-3 text-sm font-medium">
                       @{member.username || member.display_name?.toLowerCase().replace(/\s+/g, '') || 'unnamed'}
                     </td>
@@ -368,7 +372,7 @@ export default function TeamSettingsPage() {
                     <td className="px-4 py-3 text-sm text-muted-foreground">
                       {formatDate(member.created_at)}
                     </td>
-                    <td className="px-4 py-3 text-right">
+                    <td className="px-4 py-3 text-right" onClick={(e) => e.stopPropagation()}>
                       {canDeleteUser(member) && (
                         <>
                           {deletingUserId === member.user_id ? (
@@ -403,6 +407,7 @@ export default function TeamSettingsPage() {
                           )}
                         </>
                       )}
+                      <span className="ml-2 text-muted-foreground">&rarr;</span>
                     </td>
                   </tr>
                 ))}

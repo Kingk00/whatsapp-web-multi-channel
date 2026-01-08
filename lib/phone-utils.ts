@@ -46,7 +46,13 @@ export function normalizePhoneNumber(
   // Ensure it starts with +
   if (!fallback.startsWith('+')) {
     // Apply some basic heuristics
-    if (fallback.length === 10) {
+    if (fallback.startsWith('07') && fallback.length === 11) {
+      // UK mobile number without country code (07xxx xxxxxx)
+      fallback = '+44' + fallback.slice(1)
+    } else if (fallback.startsWith('44') && fallback.length >= 11) {
+      // UK number missing the +
+      fallback = '+' + fallback
+    } else if (fallback.length === 10) {
       // Likely US number without country code
       fallback = '+1' + fallback
     } else if (fallback.length === 11 && fallback.startsWith('1')) {
@@ -56,6 +62,9 @@ export function normalizePhoneNumber(
       // Just prepend +
       fallback = '+' + fallback
     }
+  } else if (fallback.startsWith('+07') && fallback.length === 12) {
+    // Malformed UK number: +07xxx -> +447xxx
+    fallback = '+44' + fallback.slice(2)
   }
 
   return fallback

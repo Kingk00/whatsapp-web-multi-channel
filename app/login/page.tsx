@@ -48,6 +48,13 @@ export default function LoginPage() {
       }
 
       if (data.user) {
+        // Track successful login (fire and forget)
+        fetch('/api/auth/track-login', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ event_type: 'login_success' }),
+        }).catch(() => {})
+
         router.push('/inbox')
         router.refresh()
       }

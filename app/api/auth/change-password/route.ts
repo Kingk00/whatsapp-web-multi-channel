@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient, createServiceRoleClient } from '@/lib/supabase/server'
+import { logLoginActivity } from '@/lib/audit'
 
 /**
  * POST /api/auth/change-password
@@ -64,6 +65,21 @@ export async function POST(request: NextRequest) {
         { error: 'Failed to update password' },
         { status: 500 }
       )
+    }
+
+    // Get user's workspace_id for logging
+    const { data: profile } = await supabase
+      .from('profiles')
+      .select('workspace_id')
+      .eq('user_id', user.id)
+      .single()
+
+    if (profile) {
+      await logLoginActivity(request, {
+        userId: user.id,
+        workspaceId: profile.workspace_id,
+        eventType: 'password_changed',
+      })
     }
 
     return NextResponse.json({ success: true, message: 'Password changed successfully' })

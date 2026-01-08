@@ -9,7 +9,7 @@
  * - Message composer
  */
 
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, useCallback } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { createClient } from '@/lib/supabase/client'
 import { useUIStore } from '@/store/ui-store'
@@ -19,6 +19,8 @@ import { cn } from '@/lib/utils'
 import { useToast } from '@/components/ui/toast'
 import { MessagesSkeleton, ChatHeaderSkeleton } from '@/components/ui/skeleton'
 import { getDisplayName } from '@/lib/chat-helpers'
+import { MessageActionMenu, MessageActionSheet } from '@/components/message-action-menu'
+import { MessageEditModal } from '@/components/message-edit-modal'
 
 interface Message {
   id: string
@@ -200,6 +202,120 @@ export function ChatView({ chatId, onBack }: ChatViewProps) {
     }
   }, [chatId, supabase, queryClient])
 
+  const { addToast } = useToast()
+
+  // Edit message mutation
+  const editMessageMutation = useMutation({
+    mutationFn: async ({ messageId, text }: { messageId: string; text: string }) => {
+      const response = await fetch(`/api/messages/${messageId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'edit', text }),
+      })
+      if (!response.ok) {
+        const error = await response.json()
+        throw new Error(error.error || 'Failed to edit message')
+      }
+      return response.json()
+    },
+    onMutate: async ({ messageId, text }) => {
+      await queryClient.cancelQueries({ queryKey: queryKeys.messages.list(chatId) })
+      const previousMessages = queryClient.getQueryData(queryKeys.messages.list(chatId))
+
+      // Optimistic update
+      queryClient.setQueryData(
+        queryKeys.messages.list(chatId),
+        (old: { messages: Message[] } | undefined) => {
+          if (!old) return old
+          return {
+            ...old,
+            messages: old.messages.map(m =>
+              m.id === messageId
+                ? { ...m, text, edited_at: new Date().toISOString() }
+                : m
+            ),
+          }
+        }
+      )
+      return { previousMessages }
+    },
+    onError: (err, _variables, context) => {
+      // Rollback on error
+      if (context?.previousMessages) {
+        queryClient.setQueryData(
+          queryKeys.messages.list(chatId),
+          context.previousMessages
+        )
+      }
+      addToast(err.message, 'error')
+    },
+    onSuccess: () => {
+      addToast('Message edited', 'success')
+    },
+  })
+
+  // Delete message mutation
+  const deleteMessageMutation = useMutation({
+    mutationFn: async ({ messageId, forEveryone }: { messageId: string; forEveryone: boolean }) => {
+      const url = forEveryone
+        ? `/api/messages/${messageId}?for_everyone=true`
+        : `/api/messages/${messageId}`
+      const response = await fetch(url, { method: 'DELETE' })
+      if (!response.ok) {
+        const error = await response.json()
+        throw new Error(error.error || 'Failed to delete message')
+      }
+      return response.json()
+    },
+    onMutate: async ({ messageId }) => {
+      await queryClient.cancelQueries({ queryKey: queryKeys.messages.list(chatId) })
+      const previousMessages = queryClient.getQueryData(queryKeys.messages.list(chatId))
+
+      // Optimistic update
+      queryClient.setQueryData(
+        queryKeys.messages.list(chatId),
+        (old: { messages: Message[] } | undefined) => {
+          if (!old) return old
+          return {
+            ...old,
+            messages: old.messages.map(m =>
+              m.id === messageId
+                ? { ...m, deleted_at: new Date().toISOString() }
+                : m
+            ),
+          }
+        }
+      )
+      return { previousMessages }
+    },
+    onError: (err, _variables, context) => {
+      if (context?.previousMessages) {
+        queryClient.setQueryData(
+          queryKeys.messages.list(chatId),
+          context.previousMessages
+        )
+      }
+      addToast(err.message, 'error')
+    },
+    onSuccess: () => {
+      addToast('Message deleted', 'success')
+    },
+  })
+
+  // Callbacks for MessageBubble
+  const handleEditMessage = useCallback((messageId: string, text: string) => {
+    editMessageMutation.mutate({ messageId, text })
+  }, [editMessageMutation])
+
+  const handleDeleteMessage = useCallback((messageId: string, forEveryone: boolean) => {
+    deleteMessageMutation.mutate({ messageId, forEveryone })
+  }, [deleteMessageMutation])
+
+  const handleCopyMessage = useCallback((text: string) => {
+    navigator.clipboard.writeText(text)
+    addToast('Copied to clipboard', 'success')
+  }, [addToast])
+
   const displayName = chat ? getDisplayName(chat) : 'Loading...'
 
   return (
@@ -231,7 +347,13 @@ export function ChatView({ chatId, onBack }: ChatViewProps) {
                   {showDateHeader && (
                     <DateHeader date={new Date(message.created_at)} />
                   )}
-                  <MessageBubble message={message} />
+                  <MessageBubble
+                    message={message}
+                    onEdit={handleEditMessage}
+                    onDelete={handleDeleteMessage}
+                    onCopy={handleCopyMessage}
+                    isEditPending={editMessageMutation.isPending && editMessageMutation.variables?.messageId === message.id}
+                  />
                 </div>
               )
             })}
@@ -395,93 +517,250 @@ function DateHeader({ date }: { date: Date }) {
   )
 }
 
-function MessageBubble({ message }: { message: Message }) {
+interface MessageBubbleProps {
+  message: Message
+  onEdit: (messageId: string, text: string) => void
+  onDelete: (messageId: string, forEveryone: boolean) => void
+  onCopy: (text: string) => void
+  isEditPending?: boolean
+}
+
+function MessageBubble({ message, onEdit, onDelete, onCopy, isEditPending }: MessageBubbleProps) {
   const isOutbound = message.direction === 'outbound'
   // Include voice/ptt messages in media check - also show for media types without URL (shows "Tap to load" button)
   const mediaTypes = ['image', 'video', 'audio', 'voice', 'ptt', 'document', 'sticker']
   const isMediaType = mediaTypes.includes(message.message_type)
   const hasMedia = isMediaType // Show MediaContent for all media types (it handles missing URLs with "Tap to load")
 
+  // State for hover menu (desktop)
+  const [isHovered, setIsHovered] = useState(false)
+  const [showMenu, setShowMenu] = useState(false)
+  const [menuPosition, setMenuPosition] = useState({ top: 0, left: 0 })
+  const menuButtonRef = useRef<HTMLButtonElement>(null)
+
+  // State for mobile action sheet
+  const [showMobileSheet, setShowMobileSheet] = useState(false)
+
+  // State for edit modal
+  const [showEditModal, setShowEditModal] = useState(false)
+
+  // Long press handling for mobile
+  const longPressTimer = useRef<NodeJS.Timeout | null>(null)
+  const isLongPress = useRef(false)
+
+  const handleTouchStart = useCallback(() => {
+    // Don't trigger long press for deleted messages
+    if (message.deleted_at) return
+
+    isLongPress.current = false
+    longPressTimer.current = setTimeout(() => {
+      isLongPress.current = true
+      if (navigator.vibrate) navigator.vibrate(50)
+      setShowMobileSheet(true)
+    }, 500)
+  }, [message.deleted_at])
+
+  const handleTouchEnd = useCallback(() => {
+    if (longPressTimer.current) {
+      clearTimeout(longPressTimer.current)
+      longPressTimer.current = null
+    }
+  }, [])
+
+  const handleTouchMove = useCallback(() => {
+    // Cancel long press if finger moves (prevents conflict with scrolling)
+    if (longPressTimer.current) {
+      clearTimeout(longPressTimer.current)
+      longPressTimer.current = null
+    }
+  }, [])
+
+  const openDesktopMenu = useCallback(() => {
+    if (menuButtonRef.current) {
+      const rect = menuButtonRef.current.getBoundingClientRect()
+      setMenuPosition({
+        top: rect.bottom + 4,
+        left: isOutbound ? rect.right - 192 : rect.left, // 192px = w-48 menu width
+      })
+    }
+    setShowMenu(true)
+  }, [isOutbound])
+
+  const handleEdit = useCallback(() => {
+    setShowEditModal(true)
+    setShowMenu(false)
+    setShowMobileSheet(false)
+  }, [])
+
+  const handleDelete = useCallback((forEveryone: boolean) => {
+    onDelete(message.id, forEveryone)
+    setShowMenu(false)
+    setShowMobileSheet(false)
+  }, [message.id, onDelete])
+
+  const handleCopy = useCallback(() => {
+    if (message.text) {
+      onCopy(message.text)
+    }
+    setShowMenu(false)
+    setShowMobileSheet(false)
+  }, [message.text, onCopy])
+
+  const handleSaveEdit = useCallback((newText: string) => {
+    onEdit(message.id, newText)
+    setShowEditModal(false)
+  }, [message.id, onEdit])
+
+  // Don't show menu for deleted messages
+  const canShowMenu = !message.deleted_at
+
   return (
-    <div
-      className={cn(
-        'flex animate-in fade-in slide-in-from-bottom-2 duration-200',
-        isOutbound ? 'justify-end' : 'justify-start'
-      )}
-    >
+    <>
       <div
         className={cn(
-          'relative max-w-[75%] md:max-w-[65%] overflow-hidden',
-          // Bubble shape with tail
-          isOutbound
-            ? 'bg-bubble-outbound dark:bg-bubble-outbound-dark rounded-2xl rounded-tr-sm'
-            : 'bg-bubble-inbound dark:bg-bubble-inbound-dark rounded-2xl rounded-tl-sm',
-          // Shadow
-          'shadow-message',
-          // Padding
-          hasMedia ? 'p-1' : 'px-3 py-2'
+          'flex animate-in fade-in slide-in-from-bottom-2 duration-200 group',
+          isOutbound ? 'justify-end' : 'justify-start'
         )}
+        onMouseEnter={() => setIsHovered(true)}
+        onMouseLeave={() => {
+          setIsHovered(false)
+          if (!showMenu) setShowMenu(false)
+        }}
+        onTouchStart={handleTouchStart}
+        onTouchEnd={handleTouchEnd}
+        onTouchMove={handleTouchMove}
       >
-        {/* Sender name (for group chats) */}
-        {!isOutbound && message.sender_name && (
-          <p className={cn(
-            "text-xs font-semibold text-whatsapp-600",
-            hasMedia ? "px-2 pt-1 mb-1" : "mb-1"
-          )}>
-            {message.sender_name}
-          </p>
-        )}
-
-        {/* Message content */}
-        {message.deleted_at ? (
-          <p className="italic text-muted-foreground px-2 py-1 flex items-center gap-1.5">
-            <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636" />
-            </svg>
-            This message was deleted
-          </p>
-        ) : (
-          <>
-            {/* Media content */}
-            {hasMedia && <MediaContent message={message} />}
-
-            {/* Text content */}
-            {message.text && (
-              <p className={cn(
-                "whitespace-pre-wrap break-words text-[15px] leading-relaxed text-foreground",
-                hasMedia ? "px-2 py-1" : ""
-              )}>
-                {message.text}
-              </p>
-            )}
-
-            {/* Text-only message */}
-            {!hasMedia && !message.text && (
-              <p className="text-sm text-muted-foreground italic">
-                [{message.message_type} message]
-              </p>
-            )}
-          </>
-        )}
-
-        {/* Footer with time and status */}
         <div
           className={cn(
-            'flex items-center gap-1 select-none',
-            hasMedia ? 'px-2 pb-1' : 'mt-1',
-            isOutbound ? 'justify-end' : 'justify-start'
+            'relative max-w-[75%] md:max-w-[65%] overflow-hidden',
+            // Bubble shape with tail
+            isOutbound
+              ? 'bg-bubble-outbound dark:bg-bubble-outbound-dark rounded-2xl rounded-tr-sm'
+              : 'bg-bubble-inbound dark:bg-bubble-inbound-dark rounded-2xl rounded-tl-sm',
+            // Shadow
+            'shadow-message',
+            // Padding
+            hasMedia ? 'p-1' : 'px-3 py-2'
           )}
         >
-          {message.edited_at && (
-            <span className="text-[10px] text-muted-foreground/70 italic">edited</span>
+          {/* Menu button (desktop hover) */}
+          {canShowMenu && (
+            <button
+              ref={menuButtonRef}
+              onClick={(e) => {
+                e.stopPropagation()
+                if (showMenu) {
+                  setShowMenu(false)
+                } else {
+                  openDesktopMenu()
+                }
+              }}
+              className={cn(
+                'absolute top-1 z-10 rounded-full p-1 transition-all duration-150 hidden md:flex',
+                'bg-white/80 dark:bg-gray-800/80 hover:bg-white dark:hover:bg-gray-800',
+                'text-muted-foreground hover:text-foreground',
+                isOutbound ? 'right-1' : 'left-1',
+                (isHovered || showMenu) ? 'opacity-100' : 'opacity-0'
+              )}
+            >
+              <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 5v.01M12 12v.01M12 19v.01M12 6a1 1 0 110-2 1 1 0 010 2zm0 7a1 1 0 110-2 1 1 0 010 2zm0 7a1 1 0 110-2 1 1 0 010 2z" />
+              </svg>
+            </button>
           )}
-          <span className="text-[10px] text-muted-foreground/70">
-            {formatMessageTime(new Date(message.created_at))}
-          </span>
-          {isOutbound && <MessageStatus status={message.status} />}
+
+          {/* Sender name (for group chats) */}
+          {!isOutbound && message.sender_name && (
+            <p className={cn(
+              "text-xs font-semibold text-whatsapp-600",
+              hasMedia ? "px-2 pt-1 mb-1" : "mb-1"
+            )}>
+              {message.sender_name}
+            </p>
+          )}
+
+          {/* Message content */}
+          {message.deleted_at ? (
+            <p className="italic text-muted-foreground px-2 py-1 flex items-center gap-1.5">
+              <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636" />
+              </svg>
+              This message was deleted
+            </p>
+          ) : (
+            <>
+              {/* Media content */}
+              {hasMedia && <MediaContent message={message} />}
+
+              {/* Text content */}
+              {message.text && (
+                <p className={cn(
+                  "whitespace-pre-wrap break-words text-[15px] leading-relaxed text-foreground select-text",
+                  hasMedia ? "px-2 py-1" : ""
+                )}>
+                  {message.text}
+                </p>
+              )}
+
+              {/* Text-only message */}
+              {!hasMedia && !message.text && (
+                <p className="text-sm text-muted-foreground italic">
+                  [{message.message_type} message]
+                </p>
+              )}
+            </>
+          )}
+
+          {/* Footer with time and status */}
+          <div
+            className={cn(
+              'flex items-center gap-1 select-none',
+              hasMedia ? 'px-2 pb-1' : 'mt-1',
+              isOutbound ? 'justify-end' : 'justify-start'
+            )}
+          >
+            {message.edited_at && (
+              <span className="text-[10px] text-muted-foreground/70 italic">edited</span>
+            )}
+            <span className="text-[10px] text-muted-foreground/70">
+              {formatMessageTime(new Date(message.created_at))}
+            </span>
+            {isOutbound && <MessageStatus status={message.status} />}
+          </div>
         </div>
       </div>
-    </div>
+
+      {/* Desktop action menu */}
+      {showMenu && (
+        <MessageActionMenu
+          message={message}
+          position={menuPosition}
+          onClose={() => setShowMenu(false)}
+          onEdit={handleEdit}
+          onDelete={handleDelete}
+          onCopy={handleCopy}
+        />
+      )}
+
+      {/* Mobile action sheet */}
+      <MessageActionSheet
+        message={message}
+        isOpen={showMobileSheet}
+        onClose={() => setShowMobileSheet(false)}
+        onEdit={handleEdit}
+        onDelete={handleDelete}
+        onCopy={handleCopy}
+      />
+
+      {/* Edit modal */}
+      <MessageEditModal
+        isOpen={showEditModal}
+        initialText={message.text || ''}
+        onClose={() => setShowEditModal(false)}
+        onSave={handleSaveEdit}
+        isSaving={isEditPending}
+      />
+    </>
   )
 }
 
