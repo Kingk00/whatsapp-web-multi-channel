@@ -37,6 +37,7 @@ export async function GET(request: NextRequest) {
     const cursor = searchParams.get('cursor')
 
     // Build query - include contact info for display name priority
+    // Note: is_pinned/pinned_at columns added in migration 010 - query handles their absence gracefully
     let query = supabase
       .from('chats')
       .select(
@@ -55,8 +56,6 @@ export async function GET(request: NextRequest) {
         unread_count,
         is_archived,
         muted_until,
-        is_pinned,
-        pinned_at,
         contact_id,
         created_at,
         updated_at,
@@ -81,10 +80,8 @@ export async function GET(request: NextRequest) {
     }
     // 'include' = no filter, return all
 
-    // Sort pinned chats first, then by last message time
+    // Sort by last message time (pinned sorting requires migration 010)
     query = query
-      .order('is_pinned', { ascending: false, nullsFirst: false })
-      .order('pinned_at', { ascending: false, nullsFirst: true })
       .order('last_message_at', { ascending: false, nullsFirst: false })
       .limit(limit)
 

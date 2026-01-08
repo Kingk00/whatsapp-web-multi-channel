@@ -348,8 +348,6 @@ export async function GET(
         unread_count,
         is_archived,
         muted_until,
-        is_pinned,
-        pinned_at,
         contact_id,
         created_at,
         updated_at,
