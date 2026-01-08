@@ -2,58 +2,401 @@
 @tailwind components;
 @tailwind utilities;
 
+/* ============================================================================
+   CSS Custom Properties - WhatsApp-inspired Design System
+   ============================================================================ */
+
 @layer base {
   :root {
+    /* Backgrounds */
     --background: 0 0% 100%;
-    --foreground: 222.2 84% 4.9%;
+    --foreground: 200 20% 10%;
+
+    /* Cards and Panels */
     --card: 0 0% 100%;
-    --card-foreground: 222.2 84% 4.9%;
+    --card-foreground: 200 20% 10%;
     --popover: 0 0% 100%;
-    --popover-foreground: 222.2 84% 4.9%;
-    --primary: 142.1 76.2% 36.3%;
-    --primary-foreground: 355.7 100% 97.3%;
-    --secondary: 210 40% 96.1%;
-    --secondary-foreground: 222.2 47.4% 11.2%;
-    --muted: 210 40% 96.1%;
-    --muted-foreground: 215.4 16.3% 46.9%;
-    --accent: 210 40% 96.1%;
-    --accent-foreground: 222.2 47.4% 11.2%;
-    --destructive: 0 84.2% 60.2%;
-    --destructive-foreground: 210 40% 98%;
-    --border: 214.3 31.8% 91.4%;
-    --input: 214.3 31.8% 91.4%;
-    --ring: 142.1 76.2% 36.3%;
+    --popover-foreground: 200 20% 10%;
+
+    /* Primary - WhatsApp Green */
+    --primary: 145 63% 49%;
+    --primary-foreground: 0 0% 100%;
+
+    /* Secondary */
+    --secondary: 200 12% 95%;
+    --secondary-foreground: 200 20% 10%;
+
+    /* Muted */
+    --muted: 200 12% 95%;
+    --muted-foreground: 200 10% 45%;
+
+    /* Accent */
+    --accent: 200 12% 95%;
+    --accent-foreground: 200 20% 10%;
+
+    /* Destructive */
+    --destructive: 0 72% 51%;
+    --destructive-foreground: 0 0% 100%;
+
+    /* Borders and Inputs */
+    --border: 200 12% 91%;
+    --input: 200 12% 91%;
+    --ring: 145 63% 49%;
+
+    /* Radius */
     --radius: 0.5rem;
+
+    /* Chat specific */
+    --chat-bg: 30 22% 91%;
+    --bubble-outbound: 104 76% 91%;
+    --bubble-inbound: 0 0% 100%;
   }
 
   .dark {
-    --background: 222.2 84% 4.9%;
-    --foreground: 210 40% 98%;
-    --card: 222.2 84% 4.9%;
-    --card-foreground: 210 40% 98%;
-    --popover: 222.2 84% 4.9%;
-    --popover-foreground: 210 40% 98%;
-    --primary: 142.1 70.6% 45.3%;
-    --primary-foreground: 144.9 80.4% 10%;
-    --secondary: 217.2 32.6% 17.5%;
-    --secondary-foreground: 210 40% 98%;
-    --muted: 217.2 32.6% 17.5%;
-    --muted-foreground: 215 20.2% 65.1%;
-    --accent: 217.2 32.6% 17.5%;
-    --accent-foreground: 210 40% 98%;
-    --destructive: 0 62.8% 30.6%;
-    --destructive-foreground: 210 40% 98%;
-    --border: 217.2 32.6% 17.5%;
-    --input: 217.2 32.6% 17.5%;
-    --ring: 142.4 71.8% 29.2%;
+    /* Backgrounds */
+    --background: 200 25% 6%;
+    --foreground: 200 12% 95%;
+
+    /* Cards and Panels */
+    --card: 200 20% 12%;
+    --card-foreground: 200 12% 95%;
+    --popover: 200 20% 12%;
+    --popover-foreground: 200 12% 95%;
+
+    /* Primary - WhatsApp Green (brighter for dark mode) */
+    --primary: 145 63% 42%;
+    --primary-foreground: 0 0% 100%;
+
+    /* Secondary */
+    --secondary: 200 20% 16%;
+    --secondary-foreground: 200 12% 95%;
+
+    /* Muted */
+    --muted: 200 20% 16%;
+    --muted-foreground: 200 12% 65%;
+
+    /* Accent */
+    --accent: 200 20% 16%;
+    --accent-foreground: 200 12% 95%;
+
+    /* Destructive */
+    --destructive: 0 62% 30%;
+    --destructive-foreground: 0 0% 100%;
+
+    /* Borders and Inputs */
+    --border: 200 20% 20%;
+    --input: 200 20% 20%;
+    --ring: 145 63% 42%;
+
+    /* Chat specific */
+    --chat-bg: 200 30% 7%;
+    --bubble-outbound: 164 85% 18%;
+    --bubble-inbound: 200 20% 12%;
   }
 }
+
+/* ============================================================================
+   Base Styles
+   ============================================================================ */
 
 @layer base {
   * {
     @apply border-border;
   }
+
+  html {
+    /* Smooth scrolling */
+    scroll-behavior: smooth;
+    /* Prevent text size adjustment on orientation change */
+    -webkit-text-size-adjust: 100%;
+    /* Better font rendering */
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
   body {
     @apply bg-background text-foreground;
+    font-feature-settings: "rlig" 1, "calt" 1;
+    /* Safe area padding for mobile devices */
+    padding-top: env(safe-area-inset-top);
+    padding-bottom: env(safe-area-inset-bottom);
+    padding-left: env(safe-area-inset-left);
+    padding-right: env(safe-area-inset-right);
+  }
+
+  /* Improved focus styles */
+  :focus-visible {
+    @apply outline-none ring-2 ring-primary ring-offset-2 ring-offset-background;
+  }
+
+  /* Selection colors */
+  ::selection {
+    @apply bg-primary/20 text-foreground;
+  }
+}
+
+/* ============================================================================
+   Scrollbar Styling
+   ============================================================================ */
+
+@layer utilities {
+  /* Hide scrollbar completely */
+  .scrollbar-hide {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+  .scrollbar-hide::-webkit-scrollbar {
+    display: none;
+  }
+
+  /* Thin scrollbar */
+  .scrollbar-thin {
+    scrollbar-width: thin;
+    scrollbar-color: hsl(var(--muted-foreground) / 0.3) transparent;
+  }
+  .scrollbar-thin::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+  .scrollbar-thin::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  .scrollbar-thin::-webkit-scrollbar-thumb {
+    background: hsl(var(--muted-foreground) / 0.3);
+    border-radius: 3px;
+  }
+  .scrollbar-thin::-webkit-scrollbar-thumb:hover {
+    background: hsl(var(--muted-foreground) / 0.5);
+  }
+}
+
+/* ============================================================================
+   Typography Utilities
+   ============================================================================ */
+
+@layer utilities {
+  /* Text truncation */
+  .truncate-2 {
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
+
+  .truncate-3 {
+    display: -webkit-box;
+    -webkit-line-clamp: 3;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
+}
+
+/* ============================================================================
+   Touch & Mobile Utilities
+   ============================================================================ */
+
+@layer utilities {
+  /* Prevent text selection on touch */
+  .touch-none-text {
+    -webkit-user-select: none;
+    user-select: none;
+    -webkit-touch-callout: none;
+  }
+
+  /* Tap highlight removal */
+  .tap-transparent {
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  /* Safe area padding */
+  .pb-safe {
+    padding-bottom: max(1rem, env(safe-area-inset-bottom));
+  }
+
+  .pt-safe {
+    padding-top: max(0px, env(safe-area-inset-top));
+  }
+
+  /* Touch-friendly minimum size */
+  .touch-target {
+    min-height: 44px;
+    min-width: 44px;
+  }
+}
+
+/* ============================================================================
+   Animation Utilities
+   ============================================================================ */
+
+@layer utilities {
+  /* Shimmer effect for skeletons */
+  .shimmer {
+    background: linear-gradient(
+      90deg,
+      hsl(var(--muted)) 0%,
+      hsl(var(--muted-foreground) / 0.1) 50%,
+      hsl(var(--muted)) 100%
+    );
+    background-size: 200% 100%;
+    animation: shimmer 2s linear infinite;
+  }
+
+  /* Typing indicator animation */
+  .typing-dot {
+    animation: typing 1.4s ease-in-out infinite;
+  }
+  .typing-dot:nth-child(2) {
+    animation-delay: 0.2s;
+  }
+  .typing-dot:nth-child(3) {
+    animation-delay: 0.4s;
+  }
+
+  /* Pulse animation for online indicator */
+  .pulse-online {
+    animation: pulse-online 2s ease-in-out infinite;
+  }
+}
+
+@keyframes pulse-online {
+  0%, 100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.7;
+    transform: scale(1.1);
+  }
+}
+
+/* ============================================================================
+   Chat Background Pattern
+   ============================================================================ */
+
+@layer utilities {
+  .chat-pattern {
+    background-color: hsl(var(--chat-bg));
+    background-image: url("data:image/svg+xml,%3Csvg width='60' height='60' viewBox='0 0 60 60' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='none' fill-rule='evenodd'%3E%3Cg fill='%23d1d7db' fill-opacity='0.4'%3E%3Cpath d='M36 34v-4h-2v4h-4v2h4v4h2v-4h4v-2h-4zm0-30V0h-2v4h-4v2h4v4h2V6h4V4h-4zM6 34v-4H4v4H0v2h4v4h2v-4h4v-2H6zM6 4V0H4v4H0v2h4v4h2V6h4V4H6z'/%3E%3C/g%3E%3C/g%3E%3C/svg%3E");
+  }
+
+  .dark .chat-pattern {
+    background-color: hsl(var(--chat-bg));
+    background-image: url("data:image/svg+xml,%3Csvg width='60' height='60' viewBox='0 0 60 60' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='none' fill-rule='evenodd'%3E%3Cg fill='%23182229' fill-opacity='0.6'%3E%3Cpath d='M36 34v-4h-2v4h-4v2h4v4h2v-4h4v-2h-4zm0-30V0h-2v4h-4v2h4v4h2V6h4V4h-4zM6 34v-4H4v4H0v2h4v4h2v-4h4v-2H6zM6 4V0H4v4H0v2h4v4h2V6h4V4H6z'/%3E%3C/g%3E%3C/g%3E%3C/svg%3E");
+  }
+}
+
+/* ============================================================================
+   Message Bubble Styles
+   ============================================================================ */
+
+@layer components {
+  .message-bubble {
+    @apply relative px-3 py-1.5 rounded-lg shadow-message;
+    max-width: min(85%, 500px);
+  }
+
+  .message-bubble-outbound {
+    @apply bg-bubble-outbound rounded-tr-sm;
+  }
+
+  .message-bubble-inbound {
+    @apply bg-white dark:bg-bubble-inbound-dark rounded-tl-sm;
+  }
+
+  /* Message tail effect */
+  .message-tail-outbound::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    right: -8px;
+    border-width: 0 8px 8px 0;
+    border-style: solid;
+    border-color: transparent transparent transparent #D9FDD3;
+  }
+
+  .message-tail-inbound::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: -8px;
+    border-width: 8px 8px 0 0;
+    border-style: solid;
+    border-color: transparent #FFFFFF transparent transparent;
+  }
+}
+
+/* ============================================================================
+   Bottom Navigation (Mobile)
+   ============================================================================ */
+
+@layer components {
+  .bottom-nav {
+    @apply fixed bottom-0 left-0 right-0 bg-white dark:bg-card border-t border-border;
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+
+  .bottom-nav-item {
+    @apply flex flex-col items-center justify-center py-2 px-4 text-muted-foreground transition-colors;
+    min-height: 56px;
+  }
+
+  .bottom-nav-item.active {
+    @apply text-primary;
+  }
+
+  .bottom-nav-item:active {
+    @apply bg-muted/50;
+  }
+}
+
+/* ============================================================================
+   Form Element Enhancements
+   ============================================================================ */
+
+@layer components {
+  /* Search input pill style */
+  .search-input {
+    @apply w-full h-10 px-4 pl-10 bg-muted/50 border-0 rounded-full text-sm placeholder:text-muted-foreground focus:bg-muted focus:ring-0 focus:outline-none transition-colors;
+  }
+
+  /* Primary button with gradient */
+  .btn-primary {
+    @apply inline-flex items-center justify-center h-10 px-4 bg-gradient-to-r from-whatsapp-500 to-whatsapp-teal text-white font-medium rounded-lg shadow-sm hover:shadow-md active:scale-[0.98] transition-all duration-fast;
+  }
+
+  /* Icon button */
+  .btn-icon {
+    @apply inline-flex items-center justify-center w-10 h-10 rounded-full text-muted-foreground hover:bg-muted active:bg-muted/80 transition-colors tap-transparent;
+  }
+}
+
+/* ============================================================================
+   Chat List Item
+   ============================================================================ */
+
+@layer components {
+  .chat-list-item {
+    @apply flex items-center gap-3 px-4 py-3 cursor-pointer hover:bg-muted/50 active:bg-muted transition-colors tap-transparent;
+    min-height: 72px;
+  }
+
+  .chat-list-item.selected {
+    @apply bg-muted;
+  }
+}
+
+/* ============================================================================
+   Responsive Utilities
+   ============================================================================ */
+
+@layer utilities {
+  /* Hide on mobile, show on desktop */
+  .desktop-only {
+    @apply hidden md:flex;
+  }
+
+  /* Show on mobile, hide on desktop */
+  .mobile-only {
+    @apply flex md:hidden;
   }
 }

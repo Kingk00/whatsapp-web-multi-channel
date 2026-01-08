@@ -66,9 +66,10 @@ interface Presence {
 
 interface ChatViewProps {
   chatId: string
+  onBack?: () => void // Mobile back button handler
 }
 
-export function ChatView({ chatId }: ChatViewProps) {
+export function ChatView({ chatId, onBack }: ChatViewProps) {
   const supabase = createClient()
   const queryClient = useQueryClient()
   const messagesEndRef = useRef<HTMLDivElement>(null)
@@ -184,7 +185,7 @@ export function ChatView({ chatId }: ChatViewProps) {
   return (
     <div className="flex h-full flex-col">
       {/* Header */}
-      <ChatHeader chat={chat} displayName={displayName} presence={presence} />
+      <ChatHeader chat={chat} displayName={displayName} presence={presence} onBack={onBack} />
 
       {/* Messages */}
       <div
@@ -238,10 +239,12 @@ function ChatHeader({
   chat,
   displayName,
   presence,
+  onBack,
 }: {
   chat: Chat | undefined
   displayName: string
   presence: Presence | null | undefined
+  onBack?: () => void
 }) {
   const { toggleDetailsPanel } = useUIStore()
 
@@ -278,21 +281,34 @@ function ChatHeader({
   const lastSeenText = getLastSeenText()
 
   return (
-    <header className="flex h-16 items-center justify-between border-b border-gray-200 bg-gray-50 px-4">
+    <header className="flex h-16 items-center justify-between border-b border-border bg-card px-4">
       <div className="flex items-center gap-3">
+        {/* Back button (mobile only) */}
+        {onBack && (
+          <button
+            onClick={onBack}
+            className="btn-icon -ml-2"
+            aria-label="Back to chats"
+          >
+            <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+            </svg>
+          </button>
+        )}
+
         {/* Avatar */}
         <div className="relative">
           {chat?.profile_photo_url ? (
             <img
               src={chat.profile_photo_url}
               alt={displayName}
-              className="h-10 w-10 rounded-full object-cover"
+              className="h-12 w-12 rounded-full object-cover bg-muted"
             />
           ) : (
             <div
               className={cn(
-                'flex h-10 w-10 items-center justify-center rounded-full text-white',
-                chat?.is_group ? 'bg-blue-500' : 'bg-gray-400'
+                'flex h-12 w-12 items-center justify-center rounded-full text-white font-medium',
+                chat?.is_group ? 'bg-blue-500' : 'bg-gradient-to-br from-whatsapp-400 to-whatsapp-600'
               )}
             >
               {displayName.charAt(0).toUpperCase()}
@@ -300,7 +316,7 @@ function ChatHeader({
           )}
           {/* Online indicator */}
           {presence?.online && (
-            <div className="absolute bottom-0 right-0 h-3 w-3 rounded-full bg-green-500 border-2 border-gray-50" />
+            <div className="absolute bottom-0 right-0 h-3.5 w-3.5 rounded-full bg-status-online border-2 border-card" />
           )}
         </div>
 
