@@ -17,6 +17,7 @@ interface Channel {
 interface SyncSettings {
   sync_channel_id: string | null
   last_synced_at: string | null
+  google_contacts_token: string | null
 }
 
 export default function ChannelSettingsPage() {
@@ -109,6 +110,28 @@ export default function ChannelSettingsPage() {
     },
   })
 
+  // Google Contacts token state
+  const [googleToken, setGoogleToken] = useState('')
+  const [showTokenInput, setShowTokenInput] = useState(false)
+
+  // Update Google Contacts token mutation
+  const updateGoogleToken = useMutation({
+    mutationFn: async (token: string) => {
+      const response = await fetch('/api/workspaces/sync-settings', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ google_contacts_token: token }),
+      })
+      if (!response.ok) throw new Error('Failed to save token')
+      return response.json()
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['workspace-sync-settings'] })
+      setShowTokenInput(false)
+      setGoogleToken('')
+    },
+  })
+
   // Sync contacts mutation
   const [syncResult, setSyncResult] = useState<{ created: number; updated: number; skipped: number } | null>(null)
   const syncContacts = useMutation({
@@ -196,6 +219,71 @@ export default function ChannelSettingsPage() {
                   </p>
                 </div>
 
+                {/* Google Contacts Token */}
+                {syncSettings?.sync_channel_id && (
+                  <div className="border-t pt-4 mt-4">
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Google Contacts Connection Token
+                    </label>
+                    {syncSettings?.google_contacts_token ? (
+                      <div className="flex items-center gap-2">
+                        <span className="text-sm text-green-600 flex items-center gap-1">
+                          <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                          </svg>
+                          Token configured
+                        </span>
+                        <button
+                          onClick={() => setShowTokenInput(true)}
+                          className="text-sm text-gray-500 hover:text-gray-700 underline"
+                        >
+                          Update
+                        </button>
+                      </div>
+                    ) : (
+                      <button
+                        onClick={() => setShowTokenInput(true)}
+                        className="text-sm text-blue-600 hover:text-blue-700"
+                      >
+                        + Add Google Contacts Token
+                      </button>
+                    )}
+                    {showTokenInput && (
+                      <div className="mt-2 space-y-2">
+                        <input
+                          type="text"
+                          value={googleToken}
+                          onChange={(e) => setGoogleToken(e.target.value)}
+                          placeholder="Paste your Google Contacts connection token here..."
+                          className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-green-500 focus:outline-none focus:ring-1 focus:ring-green-500"
+                        />
+                        <div className="flex gap-2">
+                          <Button
+                            onClick={() => updateGoogleToken.mutate(googleToken)}
+                            disabled={!googleToken.trim() || updateGoogleToken.isPending}
+                            size="sm"
+                          >
+                            {updateGoogleToken.isPending ? 'Saving...' : 'Save Token'}
+                          </Button>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => {
+                              setShowTokenInput(false)
+                              setGoogleToken('')
+                            }}
+                          >
+                            Cancel
+                          </Button>
+                        </div>
+                      </div>
+                    )}
+                    <p className="mt-1 text-xs text-gray-500">
+                      Get this token from Whapi&apos;s Google Contacts integration panel. Required for syncing contacts.
+                    </p>
+                  </div>
+                )}
+
                 {/* Last Synced */}
                 {syncSettings?.last_synced_at && (
                   <p className="text-sm text-gray-600">
@@ -204,7 +292,7 @@ export default function ChannelSettingsPage() {
                 )}
 
                 {/* Sync Button */}
-                {syncSettings?.sync_channel_id && (
+                {syncSettings?.sync_channel_id && syncSettings?.google_contacts_token && (
                   <div className="flex items-center gap-4">
                     <Button
                       onClick={() => syncContacts.mutate(syncSettings.sync_channel_id!)}

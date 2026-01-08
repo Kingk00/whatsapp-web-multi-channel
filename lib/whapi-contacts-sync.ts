@@ -13,6 +13,7 @@ import { WhapiClient, WhapiContact } from '@/lib/whapi-client'
 export interface WorkspaceSyncSettings {
   sync_channel_id: string | null
   last_synced_at: string | null
+  google_contacts_token: string | null
 }
 
 export interface SyncResult {
@@ -102,6 +103,7 @@ export async function getSyncChannelClient(
 /**
  * Push a new contact to Whapi
  * Called after creating a contact locally
+ * Uses Google Contacts integration if token is configured
  */
 export async function pushNewContactToWhapi(
   contact: Contact,
@@ -127,13 +129,29 @@ export async function pushNewContactToWhapi(
     return null
   }
 
-  try {
-    const whapiContact = await syncClient.client.createContact({
-      phone: normalizedPhone.replace('+', ''), // Whapi expects phone without +
-      name: contact.display_name,
-    })
+  // Check for Google Contacts token
+  const syncSettings = await getWorkspaceSyncSettings(workspaceId)
+  const googleContactsToken = syncSettings?.google_contacts_token
 
-    return whapiContact.id
+  try {
+    if (googleContactsToken) {
+      // Use Google Contacts integration to add contact
+      await syncClient.client.addGoogleContacts(googleContactsToken, [
+        {
+          phone: normalizedPhone.replace('+', ''),
+          name: contact.display_name,
+        },
+      ])
+      // Google Contacts doesn't return an ID, so we generate one from the phone
+      return `${normalizedPhone.replace('+', '')}@s.whatsapp.net`
+    } else {
+      // Use direct Whapi API
+      const whapiContact = await syncClient.client.createContact({
+        phone: normalizedPhone.replace('+', ''), // Whapi expects phone without +
+        name: contact.display_name,
+      })
+      return whapiContact.id
+    }
   } catch (error: any) {
     // If contact already exists (409), try to find and return its ID
     if (error?.status === 409) {
@@ -199,6 +217,7 @@ export async function pushContactDeleteToWhapi(
 /**
  * Sync contacts from Whapi to the workspace
  * Main sync function that pulls contacts and upserts them
+ * Uses Google Contacts integration if token is configured
  */
 export async function syncContactsFromWhapi(
   workspaceId: string,
@@ -212,6 +231,10 @@ export async function syncContactsFromWhapi(
   }
 
   const supabase = createServiceRoleClient()
+
+  // Get workspace settings to check for Google Contacts token
+  const syncSettings = await getWorkspaceSyncSettings(workspaceId)
+  const googleContactsToken = syncSettings?.google_contacts_token
 
   // Get channel token
   const { data: tokenRow } = await supabase
@@ -235,10 +258,16 @@ export async function syncContactsFromWhapi(
     return result
   }
 
-  // Fetch contacts from Whapi
+  // Fetch contacts from Whapi (using Google Contacts if token available)
   let whapiContacts: WhapiContact[]
   try {
-    whapiContacts = await whapiClient.getContacts()
+    if (googleContactsToken) {
+      // Use Google Contacts integration
+      whapiContacts = await whapiClient.getGoogleContacts(googleContactsToken)
+    } else {
+      // Fall back to direct Whapi contacts API
+      whapiContacts = await whapiClient.getContacts()
+    }
   } catch (error: any) {
     result.errors.push(`Failed to fetch contacts from Whapi: ${error?.message || 'Unknown error'}`)
     return result

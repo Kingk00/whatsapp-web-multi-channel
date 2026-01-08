@@ -32,9 +32,16 @@ export async function GET(request: NextRequest) {
     const syncSettings = workspace.settings?.whapi_contacts_sync || {
       sync_channel_id: null,
       last_synced_at: null,
+      google_contacts_token: null,
     }
 
-    return NextResponse.json({ sync_settings: syncSettings })
+    // Don't expose the full token, just indicate if it's set
+    return NextResponse.json({
+      sync_settings: {
+        ...syncSettings,
+        google_contacts_token: syncSettings.google_contacts_token ? '***configured***' : null,
+      },
+    })
   } catch (error) {
     if (error instanceof Response) {
       return error
@@ -65,7 +72,7 @@ export async function PATCH(request: NextRequest) {
     }
 
     const body = await request.json()
-    const { sync_channel_id } = body
+    const { sync_channel_id, google_contacts_token } = body
 
     const supabase = createServiceRoleClient()
 
@@ -94,11 +101,21 @@ export async function PATCH(request: NextRequest) {
       .single()
 
     const currentSettings = workspace?.settings || {}
+    const currentSyncSettings = currentSettings.whapi_contacts_sync || {}
 
-    // Update workspace settings
+    // Update workspace settings - only update fields that were provided
     const newSyncSettings = {
-      ...currentSettings.whapi_contacts_sync,
-      sync_channel_id: sync_channel_id || null,
+      ...currentSyncSettings,
+    }
+
+    // Update sync_channel_id if provided (can be null to clear)
+    if (sync_channel_id !== undefined) {
+      newSyncSettings.sync_channel_id = sync_channel_id || null
+    }
+
+    // Update google_contacts_token if provided
+    if (google_contacts_token !== undefined) {
+      newSyncSettings.google_contacts_token = google_contacts_token || null
     }
 
     const { error: updateError } = await supabase

@@ -310,6 +310,66 @@ export class WhapiClient {
       method: 'DELETE',
     })
   }
+
+  // ==========================================================================
+  // Google Contacts Integration Methods
+  // ==========================================================================
+
+  /**
+   * Fetch contacts from Google Contacts via Whapi integration
+   * @param googleToken - The Google Contacts connection token from Whapi
+   */
+  async getGoogleContacts(googleToken: string): Promise<WhapiContact[]> {
+    // Try to get contacts via Google People integration
+    const response = await fetch('https://tools.whapi.cloud/integrations/google_people/getContacts', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${this.token}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        token: googleToken,
+      }),
+    })
+
+    if (!response.ok) {
+      // If getContacts doesn't exist, fall back to regular contacts
+      console.log('Google Contacts getContacts endpoint not available, using regular /contacts')
+      return this.getContacts()
+    }
+
+    const data = await response.json()
+    return data.contacts || []
+  }
+
+  /**
+   * Add contacts to Google Contacts via Whapi integration
+   * @param googleToken - The Google Contacts connection token
+   * @param contacts - Array of contacts to add
+   */
+  async addGoogleContacts(
+    googleToken: string,
+    contacts: Array<{ phone: string; name: string }>
+  ): Promise<{ success: boolean }> {
+    const response = await fetch('https://tools.whapi.cloud/integrations/google_people/addContacts', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${this.token}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        token: googleToken,
+        contacts,
+      }),
+    })
+
+    if (!response.ok) {
+      const error = await response.json()
+      throw new Error(error.message || 'Failed to add Google contacts')
+    }
+
+    return { success: true }
+  }
 }
 
 // ============================================================================
