@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState, useCallback } from 'react'
 import { createBrowserClient } from '@/lib/supabase/client'
-import { RealtimeChannel, RealtimePostgresChangesPayload } from '@supabase/supabase-js'
+import { RealtimeChannel, RealtimePostgresChangesPayload, REALTIME_SUBSCRIBE_STATES } from '@supabase/supabase-js'
 
 // ============================================================================
 // Types
@@ -103,13 +103,13 @@ export function useConnectionStatus(options: UseRealtimeOptions = {}) {
         // Re-initialize connection
         const testChannel = supabaseRef.current.channel('connection-test')
         testChannel
-          .on('system', { event: '*' }, (payload) => {
+          .on('system', { event: '*' }, (payload: { type: string }) => {
             if (payload.type === 'connected') {
               updateStatus('connected')
               supabaseRef.current.removeChannel(testChannel)
             }
           })
-          .subscribe((status) => {
+          .subscribe((status: `${REALTIME_SUBSCRIBE_STATES}`) => {
             if (status === 'SUBSCRIBED') {
               updateStatus('connected')
             } else if (status === 'CHANNEL_ERROR') {
@@ -149,7 +149,7 @@ export function useConnectionStatus(options: UseRealtimeOptions = {}) {
       // Check if we have any active subscriptions
       const channels = supabaseRef.current.getChannels()
       const hasActiveChannels = channels.some(
-        (ch) => ch.state === 'joined' || ch.state === 'joining'
+        (ch: RealtimeChannel) => ch.state === 'joined' || ch.state === 'joining'
       )
 
       if (state.status === 'connected' && !hasActiveChannels && channels.length > 0) {
@@ -231,7 +231,7 @@ export function useRealtimeSubscription(
     }
 
     // Subscribe with status handling
-    channel.subscribe((status, err) => {
+    channel.subscribe((status: `${REALTIME_SUBSCRIBE_STATES}`, err?: Error) => {
       if (status === 'SUBSCRIBED') {
         setIsSubscribed(true)
         setError(null)
@@ -283,7 +283,7 @@ export function useChatRealtime(
           event: 'INSERT',
           table: 'messages',
           filter: `chat_id=eq.${chatId}`,
-          callback: (payload) => onNewMessage(payload.new),
+          callback: (payload: RealtimePostgresChangesPayload<any>) => onNewMessage(payload.new),
         },
         ...(onMessageUpdate
           ? [
@@ -291,7 +291,7 @@ export function useChatRealtime(
                 event: 'UPDATE' as const,
                 table: 'messages',
                 filter: `chat_id=eq.${chatId}`,
-                callback: (payload: any) => onMessageUpdate(payload.new),
+                callback: (payload: RealtimePostgresChangesPayload<any>) => onMessageUpdate(payload.new),
               },
             ]
           : []),
@@ -320,7 +320,7 @@ export function useChannelStatusRealtime(
           event: 'UPDATE',
           table: 'channels',
           filter: `id=eq.${channelId}`,
-          callback: (payload) => onStatusChange(payload.new),
+          callback: (payload: RealtimePostgresChangesPayload<any>) => onStatusChange(payload.new),
         },
       ]
     : []
@@ -350,7 +350,7 @@ export function useInboxRealtime(
           event: 'UPDATE',
           table: 'chats',
           filter,
-          callback: (payload) => onChatUpdate(payload.new),
+          callback: (payload: RealtimePostgresChangesPayload<any>) => onChatUpdate(payload.new),
         },
         ...(onNewChat
           ? [
@@ -358,7 +358,7 @@ export function useInboxRealtime(
                 event: 'INSERT' as const,
                 table: 'chats',
                 filter,
-                callback: (payload: any) => onNewChat(payload.new),
+                callback: (payload: RealtimePostgresChangesPayload<any>) => onNewChat(payload.new),
               },
             ]
           : []),
