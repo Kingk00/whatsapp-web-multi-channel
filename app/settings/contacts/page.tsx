@@ -262,6 +262,46 @@ function ContactsSettingsContent() {
     }
   }
 
+  // Dedupe mutation
+  const dedupeMutation = useMutation({
+    mutationFn: async () => {
+      const response = await fetch('/api/contacts/dedupe', {
+        method: 'POST',
+      })
+      if (!response.ok) {
+        const error = await response.json()
+        throw new Error(error.error || 'Failed to remove duplicates')
+      }
+      return response.json()
+    },
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ['contacts'] })
+      addToast(`Removed ${data.removed} duplicate contacts`, 'success')
+    },
+    onError: (error: Error) => {
+      addToast(error.message, 'error')
+    },
+  })
+
+  const handleRemoveDuplicates = async () => {
+    // First preview duplicates
+    try {
+      const response = await fetch('/api/contacts/dedupe')
+      const data = await response.json()
+
+      if (data.total_duplicates === 0) {
+        addToast('No duplicates found', 'success')
+        return
+      }
+
+      if (confirm(`Found ${data.total_duplicates} duplicate contacts in ${data.duplicate_groups} groups. Remove them?`)) {
+        dedupeMutation.mutate()
+      }
+    } catch (error) {
+      addToast('Failed to check for duplicates', 'error')
+    }
+  }
+
   return (
     <div className="flex-1">
       {/* Header */}
@@ -290,13 +330,22 @@ function ContactsSettingsContent() {
                 </button>
               )}
               {(data?.total || 0) > 0 && selectedIds.size === 0 && (
-                <button
-                  onClick={handleDeleteAll}
-                  disabled={bulkDeleteMutation.isPending}
-                  className="rounded-lg border border-red-300 bg-white px-4 py-2 text-sm font-medium text-red-600 hover:bg-red-50 disabled:opacity-50"
-                >
-                  Delete All
-                </button>
+                <>
+                  <button
+                    onClick={handleRemoveDuplicates}
+                    disabled={dedupeMutation.isPending}
+                    className="rounded-lg border border-orange-300 bg-white px-4 py-2 text-sm font-medium text-orange-600 hover:bg-orange-50 disabled:opacity-50"
+                  >
+                    {dedupeMutation.isPending ? 'Removing...' : 'Remove Duplicates'}
+                  </button>
+                  <button
+                    onClick={handleDeleteAll}
+                    disabled={bulkDeleteMutation.isPending}
+                    className="rounded-lg border border-red-300 bg-white px-4 py-2 text-sm font-medium text-red-600 hover:bg-red-50 disabled:opacity-50"
+                  >
+                    Delete All
+                  </button>
+                </>
               )}
               {googleConfig?.configured && (
                 <button
