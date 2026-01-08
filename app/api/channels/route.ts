@@ -171,9 +171,18 @@ export async function POST(request: NextRequest) {
           webhooks: [{
             url: webhookUrl,
             events: [
+              // New messages
               { type: 'messages', method: 'post' },
+              // Edited messages (PATCH = partial update)
+              { type: 'messages', method: 'patch' },
+              // Deleted messages
+              { type: 'messages', method: 'delete' },
+              // Message status updates (sent, delivered, read)
               { type: 'statuses', method: 'post' },
+              { type: 'statuses', method: 'put' },
+              // Chat updates
               { type: 'chats', method: 'post' },
+              { type: 'chats', method: 'patch' },
             ],
             mode: 'body',
           }],
