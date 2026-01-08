@@ -366,8 +366,10 @@ function DateHeader({ date }: { date: Date }) {
 
 function MessageBubble({ message }: { message: Message }) {
   const isOutbound = message.direction === 'outbound'
-  // Include voice/ptt messages in media check
-  const hasMedia = message.media_url && ['image', 'video', 'audio', 'voice', 'ptt', 'document', 'sticker'].includes(message.message_type)
+  // Include voice/ptt messages in media check - also show for media types without URL (shows "Tap to load" button)
+  const mediaTypes = ['image', 'video', 'audio', 'voice', 'ptt', 'document', 'sticker']
+  const isMediaType = mediaTypes.includes(message.message_type)
+  const hasMedia = isMediaType // Show MediaContent for all media types (it handles missing URLs with "Tap to load")
 
   return (
     <div
