@@ -36,25 +36,31 @@ ON CONFLICT (id) DO UPDATE SET
   file_size_limit = 52428800,
   allowed_mime_types = EXCLUDED.allowed_mime_types;
 
--- 2. Policy: Allow authenticated users to upload files
+-- 2. Drop existing policies if they exist, then recreate
+DROP POLICY IF EXISTS "Allow authenticated uploads" ON storage.objects;
+DROP POLICY IF EXISTS "Allow authenticated updates" ON storage.objects;
+DROP POLICY IF EXISTS "Allow authenticated deletes" ON storage.objects;
+DROP POLICY IF EXISTS "Allow public read access" ON storage.objects;
+
+-- 3. Policy: Allow authenticated users to upload files
 CREATE POLICY "Allow authenticated uploads"
 ON storage.objects FOR INSERT
 TO authenticated
 WITH CHECK (bucket_id = 'attachments');
 
--- 3. Policy: Allow authenticated users to update their files
+-- 4. Policy: Allow authenticated users to update their files
 CREATE POLICY "Allow authenticated updates"
 ON storage.objects FOR UPDATE
 TO authenticated
 USING (bucket_id = 'attachments');
 
--- 4. Policy: Allow authenticated users to delete files
+-- 5. Policy: Allow authenticated users to delete files
 CREATE POLICY "Allow authenticated deletes"
 ON storage.objects FOR DELETE
 TO authenticated
 USING (bucket_id = 'attachments');
 
--- 5. Policy: Allow public read access (since bucket is public)
+-- 6. Policy: Allow public read access (since bucket is public)
 CREATE POLICY "Allow public read access"
 ON storage.objects FOR SELECT
 TO public
