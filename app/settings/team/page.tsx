@@ -274,14 +274,13 @@ export default function TeamSettingsPage() {
                   </div>
 
                   <div className="space-y-2">
-                    <Label htmlFor="email">Email *</Label>
+                    <Label htmlFor="email">Email (optional)</Label>
                     <Input
                       id="email"
                       type="email"
-                      placeholder="john@example.com"
+                      placeholder="john@example.com (auto-generated if empty)"
                       value={formEmail}
                       onChange={(e) => setFormEmail(e.target.value)}
-                      required
                     />
                   </div>
 

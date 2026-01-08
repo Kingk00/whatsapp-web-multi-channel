@@ -9,7 +9,7 @@ import { createClient, createServiceRoleClient } from '@/lib/supabase/server'
  * Body:
  * - username: Username (required)
  * - displayName: Display name (required)
- * - email: Email address (required)
+ * - email: Email address (optional - auto-generated if not provided)
  * - password: Password (required, min 8 chars)
  * - role: Role - 'agent' | 'admin' | 'main_admin' (default: 'agent')
  */
@@ -57,15 +57,15 @@ export async function POST(request: NextRequest) {
     if (!displayName?.trim()) {
       return NextResponse.json({ error: 'Display name is required' }, { status: 400 })
     }
-    if (!email?.trim()) {
-      return NextResponse.json({ error: 'Email is required' }, { status: 400 })
-    }
     if (!password || password.length < 8) {
       return NextResponse.json(
         { error: 'Password must be at least 8 characters' },
         { status: 400 }
       )
     }
+
+    // Generate placeholder email if not provided (Supabase Auth requires email)
+    const userEmail = email?.trim() || `${username.toLowerCase().trim()}@workspace.internal`
 
     // Validate role - only main_admin can create main_admin users
     const validRoles = ['agent', 'admin', 'main_admin']
@@ -79,16 +79,18 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // Check if email already exists
-    const { data: existingUser } = await serviceSupabase.auth.admin.listUsers()
-    const emailExists = existingUser?.users?.some(
-      (u) => u.email?.toLowerCase() === email.toLowerCase()
-    )
-    if (emailExists) {
-      return NextResponse.json(
-        { error: 'A user with this email already exists' },
-        { status: 409 }
+    // Check if email already exists (only if a real email was provided)
+    if (email?.trim()) {
+      const { data: existingUser } = await serviceSupabase.auth.admin.listUsers()
+      const emailExists = existingUser?.users?.some(
+        (u) => u.email?.toLowerCase() === userEmail.toLowerCase()
       )
+      if (emailExists) {
+        return NextResponse.json(
+          { error: 'A user with this email already exists' },
+          { status: 409 }
+        )
+      }
     }
 
     // Check if username already exists in workspace
@@ -108,7 +110,7 @@ export async function POST(request: NextRequest) {
 
     // Create Supabase Auth user
     const { data: authData, error: createUserError } = await serviceSupabase.auth.admin.createUser({
-      email,
+      email: userEmail,
       password,
       email_confirm: true, // Auto-confirm email
       user_metadata: {
