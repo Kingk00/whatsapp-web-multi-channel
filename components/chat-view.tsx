@@ -772,13 +772,6 @@ function MessageStatus({ status }: { status: string | null }) {
   const getStatusIcon = () => {
     switch (status) {
       case 'pending':
-        // Clock icon for pending
-        return (
-          <svg className="h-3.5 w-3.5 text-gray-400" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">
-            <circle cx="8" cy="8" r="6" />
-            <path d="M8 4v4l2.5 1.5" strokeLinecap="round" />
-          </svg>
-        )
       case 'sent':
         // Single tick for sent
         return (
