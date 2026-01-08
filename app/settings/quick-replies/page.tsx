@@ -407,6 +407,7 @@ function QuickReplyFormModal({
   )
   const [pendingFiles, setPendingFiles] = useState<PendingFile[]>([])
   const [uploadingFiles, setUploadingFiles] = useState(false)
+  const [uploadProgress, setUploadProgress] = useState({ current: 0, total: 0, percent: 0 })
 
   // Check if there's any media (existing or pending)
   const hasMedia = existingAttachments.length > 0 || pendingFiles.length > 0
@@ -485,30 +486,47 @@ function QuickReplyFormModal({
     }
   }
 
+  const uploadFileWithProgress = (file: File, quickReplyId: string): Promise<boolean> => {
+    return new Promise((resolve) => {
+      const xhr = new XMLHttpRequest()
+      const formData = new FormData()
+      formData.append('file', file)
+
+      xhr.upload.addEventListener('progress', (event) => {
+        if (event.lengthComputable) {
+          const percent = Math.round((event.loaded / event.total) * 100)
+          setUploadProgress((prev) => ({ ...prev, percent }))
+        }
+      })
+
+      xhr.addEventListener('load', () => {
+        resolve(xhr.status >= 200 && xhr.status < 300)
+      })
+
+      xhr.addEventListener('error', () => {
+        console.error('Upload error')
+        resolve(false)
+      })
+
+      xhr.open('POST', `/api/quick-replies/${quickReplyId}/attachments`)
+      xhr.send(formData)
+    })
+  }
+
   const uploadPendingFiles = async (quickReplyId: string) => {
     if (pendingFiles.length === 0) return
 
     setUploadingFiles(true)
+    setUploadProgress({ current: 0, total: pendingFiles.length, percent: 0 })
     let uploadedCount = 0
 
-    for (const pf of pendingFiles) {
-      try {
-        const formData = new FormData()
-        formData.append('file', pf.file)
+    for (let i = 0; i < pendingFiles.length; i++) {
+      const pf = pendingFiles[i]
+      setUploadProgress({ current: i + 1, total: pendingFiles.length, percent: 0 })
 
-        const response = await fetch(`/api/quick-replies/${quickReplyId}/attachments`, {
-          method: 'POST',
-          body: formData,
-        })
-
-        if (response.ok) {
-          uploadedCount++
-        } else {
-          const error = await response.json()
-          console.error('Upload error:', error)
-        }
-      } catch (error) {
-        console.error('Upload error:', error)
+      const success = await uploadFileWithProgress(pf.file, quickReplyId)
+      if (success) {
+        uploadedCount++
       }
     }
 
@@ -516,6 +534,7 @@ function QuickReplyFormModal({
       addToast(`${uploadedCount} file(s) uploaded`, 'success')
     }
     setUploadingFiles(false)
+    setUploadProgress({ current: 0, total: 0, percent: 0 })
     setPendingFiles([])
   }
 
@@ -731,11 +750,30 @@ function QuickReplyFormModal({
             </div>
           </div>
 
+          {/* Upload Progress Bar */}
+          {uploadingFiles && (
+            <div className="mt-4 space-y-2">
+              <div className="flex items-center justify-between text-sm">
+                <span className="text-gray-600">
+                  Uploading file {uploadProgress.current} of {uploadProgress.total}...
+                </span>
+                <span className="font-medium text-green-600">{uploadProgress.percent}%</span>
+              </div>
+              <div className="h-2 w-full overflow-hidden rounded-full bg-gray-200">
+                <div
+                  className="h-full rounded-full bg-gradient-to-r from-green-500 to-green-600 transition-all duration-300"
+                  style={{ width: `${uploadProgress.percent}%` }}
+                />
+              </div>
+            </div>
+          )}
+
           <div className="mt-6 flex justify-end gap-3">
             <button
               type="button"
               onClick={onClose}
-              className="rounded-lg border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
+              disabled={uploadingFiles}
+              className="rounded-lg border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50"
             >
               Cancel
             </button>
