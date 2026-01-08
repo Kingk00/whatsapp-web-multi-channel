@@ -376,9 +376,9 @@ function ContactsSettingsContent() {
             </button>
           </div>
         ) : (
-          <div className="rounded-lg bg-white shadow-sm">
+          <div className="rounded-lg bg-white shadow-sm max-h-[600px] overflow-auto">
             <table className="w-full">
-              <thead className="border-b border-gray-200 bg-gray-50">
+              <thead className="border-b border-gray-200 bg-gray-50 sticky top-0">
                 <tr>
                   <th className="w-12 px-4 py-3">
                     <input
