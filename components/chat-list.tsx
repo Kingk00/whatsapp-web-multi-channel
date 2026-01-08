@@ -13,7 +13,7 @@
  * - Archived chats section
  */
 
-import React, { useState } from 'react'
+import React, { useState, useRef, useCallback } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useUIStore } from '@/store/ui-store'
 import { queryKeys } from '@/lib/query-client'
@@ -21,6 +21,7 @@ import { cn } from '@/lib/utils'
 import { formatDistanceToNow } from '@/lib/date-utils'
 import { ChatListSkeleton } from '@/components/ui/skeleton'
 import { ChatListItemMenu } from '@/components/chat-list-item-menu'
+import { ActionSheet } from '@/components/ui/bottom-sheet'
 import { useToast } from '@/components/ui/toast'
 import { getDisplayName } from '@/lib/chat-helpers'
 import { Avatar } from '@/components/ui/avatar'
@@ -42,6 +43,8 @@ interface Chat {
   is_archived: boolean
   muted_until: string | null
   is_muted: boolean
+  is_pinned?: boolean
+  pinned_at?: string | null
   channel: {
     id: string
     name: string
@@ -169,6 +172,26 @@ export function ChatList({
     },
     onError: () => {
       addToast('Failed to delete chat', 'error')
+    },
+  })
+
+  // Pin mutation
+  const pinMutation = useMutation({
+    mutationFn: async ({ chatId, pin }: { chatId: string; pin: boolean }) => {
+      const response = await fetch(`/api/chats/${chatId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: pin ? 'pin' : 'unpin' }),
+      })
+      if (!response.ok) throw new Error('Failed to update chat')
+      return response.json()
+    },
+    onSuccess: (_, { pin }) => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.chats.list(channelId || undefined) })
+      addToast(pin ? 'Chat pinned' : 'Chat unpinned', 'success')
+    },
+    onError: () => {
+      addToast('Failed to update chat', 'error')
     },
   })
 
@@ -313,6 +336,7 @@ export function ChatList({
           onArchive={() => archiveMutation.mutate({ chatId: chat.id, archive: !chat.is_archived })}
           onMute={(duration) => muteMutation.mutate({ chatId: chat.id, duration })}
           onUnmute={() => muteMutation.mutate({ chatId: chat.id })}
+          onPin={() => pinMutation.mutate({ chatId: chat.id, pin: !chat.is_pinned })}
           onDelete={() => deleteMutation.mutate(chat.id)}
         />
       ))}
@@ -352,6 +376,7 @@ export function ChatList({
                   onArchive={() => archiveMutation.mutate({ chatId: chat.id, archive: false })}
                   onMute={(duration) => muteMutation.mutate({ chatId: chat.id, duration })}
                   onUnmute={() => muteMutation.mutate({ chatId: chat.id })}
+                  onPin={() => pinMutation.mutate({ chatId: chat.id, pin: !chat.is_pinned })}
                   onDelete={() => deleteMutation.mutate(chat.id)}
                 />
               ))}
@@ -371,6 +396,7 @@ interface ChatListItemProps {
   onArchive: () => void
   onMute: (duration: '8h' | '1w' | 'always') => void
   onUnmute: () => void
+  onPin: () => void
   onDelete: () => void
 }
 
@@ -382,11 +408,15 @@ function ChatListItem({
   onArchive,
   onMute,
   onUnmute,
+  onPin,
   onDelete,
 }: ChatListItemProps) {
   const [showMenu, setShowMenu] = useState(false)
   const [menuOpen, setMenuOpen] = useState(false)
-  const itemRef = React.useRef<HTMLDivElement>(null)
+  const [showMobileMenu, setShowMobileMenu] = useState(false)
+  const itemRef = useRef<HTMLDivElement>(null)
+  const longPressTimer = useRef<NodeJS.Timeout | null>(null)
+  const isLongPress = useRef(false)
 
   // Use getDisplayName for proper priority: contact name > phone > WA name
   const displayName = getDisplayName(chat)
@@ -414,19 +444,95 @@ function ChatListItem({
     }
   }
 
+  // Long press handlers for mobile
+  const handleTouchStart = useCallback(() => {
+    isLongPress.current = false
+    longPressTimer.current = setTimeout(() => {
+      isLongPress.current = true
+      setShowMobileMenu(true)
+    }, 500) // 500ms for long press
+  }, [])
+
+  const handleTouchEnd = useCallback(() => {
+    if (longPressTimer.current) {
+      clearTimeout(longPressTimer.current)
+      longPressTimer.current = null
+    }
+  }, [])
+
+  const handleTouchMove = useCallback(() => {
+    // Cancel long press if user moves finger
+    if (longPressTimer.current) {
+      clearTimeout(longPressTimer.current)
+      longPressTimer.current = null
+    }
+  }, [])
+
+  const handleClick = useCallback(() => {
+    // Only trigger select if it wasn't a long press
+    if (!isLongPress.current) {
+      onSelect()
+    }
+    isLongPress.current = false
+  }, [onSelect])
+
+  // Mobile action sheet actions
+  const mobileActions = [
+    {
+      label: chat.is_pinned ? 'Unpin' : 'Pin',
+      icon: <PinIcon className="h-5 w-5" />,
+      onClick: onPin,
+    },
+    {
+      label: chat.is_archived ? 'Unarchive' : 'Archive',
+      icon: <ArchiveIcon className="h-5 w-5" />,
+      onClick: onArchive,
+    },
+    {
+      label: chat.is_muted ? 'Unmute' : 'Mute',
+      icon: <MuteIcon className="h-5 w-5" />,
+      onClick: chat.is_muted ? onUnmute : () => onMute('always'),
+    },
+    {
+      label: 'Delete',
+      icon: <DeleteIcon className="h-5 w-5" />,
+      onClick: onDelete,
+      variant: 'destructive' as const,
+    },
+  ]
+
   return (
-    <div
-      ref={itemRef}
-      className={cn(
-        'group relative flex w-full items-center gap-3 px-4 min-h-[72px] py-3 text-left transition-colors duration-fast',
-        'hover:bg-muted/50 active:bg-muted touch-target',
-        isSelected && 'bg-whatsapp-50 dark:bg-whatsapp-900/20 border-l-4 border-l-whatsapp-500'
-      )}
-      onMouseMove={handleMouseMove}
-      onMouseLeave={handleMouseLeave}
-    >
-      {/* Main clickable area */}
-      <button onClick={onSelect} className="flex flex-1 items-center gap-3 min-w-0">
+    <>
+      {/* Mobile action sheet */}
+      <ActionSheet
+        open={showMobileMenu}
+        onClose={() => setShowMobileMenu(false)}
+        actions={mobileActions}
+        title={displayName}
+      />
+      <div
+        ref={itemRef}
+        className={cn(
+          'group relative flex w-full items-center gap-3 px-4 min-h-[72px] py-3 text-left transition-colors duration-fast',
+          'hover:bg-muted/50 active:bg-muted touch-target select-none',
+          isSelected && 'bg-whatsapp-50 dark:bg-whatsapp-900/20 border-l-4 border-l-whatsapp-500',
+          chat.is_pinned && 'bg-whatsapp-50/50 dark:bg-whatsapp-900/10'
+        )}
+        onMouseMove={handleMouseMove}
+        onMouseLeave={handleMouseLeave}
+        onTouchStart={handleTouchStart}
+        onTouchEnd={handleTouchEnd}
+        onTouchMove={handleTouchMove}
+      >
+        {/* Pin indicator */}
+        {chat.is_pinned && (
+          <div className="absolute top-2 right-2 text-whatsapp-500">
+            <PinIcon className="h-3 w-3" />
+          </div>
+        )}
+
+        {/* Main clickable area */}
+        <button onClick={handleClick} className="flex flex-1 items-center gap-3 min-w-0">
         {/* Avatar with channel indicator */}
         <div className="relative flex-shrink-0">
           <Avatar
@@ -512,25 +618,62 @@ function ChatListItem({
         </div>
       </button>
 
-      {/* Hover menu - only shows on right side hover */}
-      <div
-        className={cn(
-          'absolute right-3 top-1/2 -translate-y-1/2 transition-all duration-fast',
-          showMenu || menuOpen ? 'opacity-100 scale-100' : 'opacity-0 scale-95 pointer-events-none'
-        )}
-      >
-        <ChatListItemMenu
-          chatId={chat.id}
-          isArchived={chat.is_archived}
-          isMuted={chat.is_muted}
-          onArchive={onArchive}
-          onMute={onMute}
-          onUnmute={onUnmute}
-          onDelete={onDelete}
-          onOpenChange={setMenuOpen}
-        />
+        {/* Hover menu - only shows on right side hover (desktop) */}
+        <div
+          className={cn(
+            'absolute right-3 top-1/2 -translate-y-1/2 transition-all duration-fast hidden md:block',
+            showMenu || menuOpen ? 'opacity-100 scale-100' : 'opacity-0 scale-95 pointer-events-none'
+          )}
+        >
+          <ChatListItemMenu
+            chatId={chat.id}
+            isArchived={chat.is_archived}
+            isMuted={chat.is_muted}
+            isPinned={chat.is_pinned}
+            onArchive={onArchive}
+            onMute={onMute}
+            onUnmute={onUnmute}
+            onPin={onPin}
+            onDelete={onDelete}
+            onOpenChange={setMenuOpen}
+          />
+        </div>
       </div>
-    </div>
+    </>
+  )
+}
+
+// Icon components for mobile menu
+function PinIcon({ className }: { className?: string }) {
+  return (
+    <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 5a2 2 0 012-2h10a2 2 0 012 2v16l-7-3.5L5 21V5z" />
+    </svg>
+  )
+}
+
+function ArchiveIcon({ className }: { className?: string }) {
+  return (
+    <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 8h14M5 8a2 2 0 110-4h14a2 2 0 110 4M5 8v10a2 2 0 002 2h10a2 2 0 002-2V8m-9 4h4" />
+    </svg>
+  )
+}
+
+function MuteIcon({ className }: { className?: string }) {
+  return (
+    <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707C10.923 3.663 12 4.109 12 5v14c0 .891-1.077 1.337-1.707.707L5.586 15z" />
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2" />
+    </svg>
+  )
+}
+
+function DeleteIcon({ className }: { className?: string }) {
+  return (
+    <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+    </svg>
   )
 }
 

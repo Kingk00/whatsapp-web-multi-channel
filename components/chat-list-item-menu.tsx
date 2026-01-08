@@ -8,9 +8,11 @@ interface ChatListItemMenuProps {
   chatId: string
   isArchived: boolean
   isMuted: boolean
+  isPinned?: boolean
   onArchive: () => void
   onMute: (duration: '8h' | '1w' | 'always') => void
   onUnmute: () => void
+  onPin: () => void
   onDelete: () => void
   onOpenChange?: (isOpen: boolean) => void
 }
@@ -19,9 +21,11 @@ export function ChatListItemMenu({
   chatId,
   isArchived,
   isMuted,
+  isPinned,
   onArchive,
   onMute,
   onUnmute,
+  onPin,
   onDelete,
   onOpenChange,
 }: ChatListItemMenuProps) {
@@ -87,6 +91,11 @@ export function ChatListItemMenu({
     }
   }, [isOpenInternal])
 
+  const handlePinClick = () => {
+    onPin()
+    setIsOpen(false)
+  }
+
   const handleArchiveClick = () => {
     onArchive()
     setIsOpen(false)
@@ -117,7 +126,7 @@ export function ChatListItemMenu({
   const menuContent = (
     <div
       ref={menuRef}
-      className="fixed w-52 rounded-lg border border-gray-200 bg-white py-2 shadow-2xl"
+      className="fixed w-52 rounded-lg border border-border bg-card py-2 shadow-2xl"
       style={{
         top: menuPosition.top,
         left: menuPosition.left,
@@ -125,155 +134,10 @@ export function ChatListItemMenu({
         transform: 'translateY(-100%)',
       }}
     >
-          {/* Archive / Unarchive */}
+          {/* Pin / Unpin */}
           <button
-            onClick={handleArchiveClick}
-            className="flex w-full items-center gap-3 px-4 py-2.5 text-left text-sm text-gray-700 hover:bg-gray-50"
-          >
-            {isArchived ? (
-              <>
-                <svg
-                  xmlns="http://www.w3.org/2000/svg"
-                  className="h-4 w-4"
-                  fill="none"
-                  viewBox="0 0 24 24"
-                  stroke="currentColor"
-                >
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    strokeWidth={2}
-                    d="M5 8h14M5 8a2 2 0 110-4h14a2 2 0 110 4M5 8v10a2 2 0 002 2h10a2 2 0 002-2V8m-9 4h4"
-                  />
-                </svg>
-                Unarchive
-              </>
-            ) : (
-              <>
-                <svg
-                  xmlns="http://www.w3.org/2000/svg"
-                  className="h-4 w-4"
-                  fill="none"
-                  viewBox="0 0 24 24"
-                  stroke="currentColor"
-                >
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    strokeWidth={2}
-                    d="M5 8h14M5 8a2 2 0 110-4h14a2 2 0 110 4M5 8v10a2 2 0 002 2h10a2 2 0 002-2V8m-9 4h4"
-                  />
-                </svg>
-                Archive
-              </>
-            )}
-          </button>
-
-          {/* Mute / Unmute */}
-          {isMuted ? (
-            <button
-              onClick={handleUnmuteClick}
-              className="flex w-full items-center gap-3 px-4 py-2.5 text-left text-sm text-gray-700 hover:bg-gray-50"
-            >
-              <svg
-                xmlns="http://www.w3.org/2000/svg"
-                className="h-4 w-4"
-                fill="none"
-                viewBox="0 0 24 24"
-                stroke="currentColor"
-              >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  strokeWidth={2}
-                  d="M15.536 8.464a5 5 0 010 7.072m2.828-9.9a9 9 0 010 12.728M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707C10.923 3.663 12 4.109 12 5v14c0 .891-1.077 1.337-1.707.707L5.586 15z"
-                />
-              </svg>
-              Unmute
-            </button>
-          ) : (
-            <div className="relative">
-              <button
-                onClick={() => setShowMuteSubmenu(!showMuteSubmenu)}
-                className="flex w-full items-center justify-between gap-3 px-4 py-2.5 text-left text-sm text-gray-700 hover:bg-gray-50"
-              >
-                <span className="flex items-center gap-3">
-                  <svg
-                    xmlns="http://www.w3.org/2000/svg"
-                    className="h-4 w-4"
-                    fill="none"
-                    viewBox="0 0 24 24"
-                    stroke="currentColor"
-                  >
-                    <path
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      strokeWidth={2}
-                      d="M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707C10.923 3.663 12 4.109 12 5v14c0 .891-1.077 1.337-1.707.707L5.586 15z"
-                    />
-                    <path
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      strokeWidth={2}
-                      d="M17 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2"
-                    />
-                  </svg>
-                  Mute
-                </span>
-                <svg
-                  xmlns="http://www.w3.org/2000/svg"
-                  className={cn(
-                    'h-4 w-4 transition-transform',
-                    showMuteSubmenu && 'rotate-90'
-                  )}
-                  fill="none"
-                  viewBox="0 0 24 24"
-                  stroke="currentColor"
-                >
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    strokeWidth={2}
-                    d="M9 5l7 7-7 7"
-                  />
-                </svg>
-              </button>
-
-              {/* Mute submenu */}
-              {showMuteSubmenu && (
-                <div className="border-t border-gray-100 bg-gray-50 py-1">
-                  <button
-                    onClick={() => handleMuteClick('8h')}
-                    className="flex w-full items-center gap-3 px-8 py-2.5 text-left text-sm text-gray-600 hover:bg-gray-100"
-                  >
-                    8 hours
-                  </button>
-                  <button
-                    onClick={() => handleMuteClick('1w')}
-                    className="flex w-full items-center gap-3 px-8 py-2.5 text-left text-sm text-gray-600 hover:bg-gray-100"
-                  >
-                    1 week
-                  </button>
-                  <button
-                    onClick={() => handleMuteClick('always')}
-                    className="flex w-full items-center gap-3 px-8 py-2.5 text-left text-sm text-gray-600 hover:bg-gray-100"
-                  >
-                    Always
-                  </button>
-                </div>
-              )}
-            </div>
-          )}
-
-          <hr className="my-1.5 border-gray-100" />
-
-          {/* Delete */}
-          <button
-            onClick={handleDeleteClick}
-            className={cn(
-              'flex w-full items-center gap-3 px-4 py-2.5 text-left text-sm hover:bg-red-50',
-              showDeleteConfirm ? 'text-red-600' : 'text-red-500'
-            )}
+            onClick={handlePinClick}
+            className="flex w-full items-center gap-3 px-4 py-2.5 text-left text-sm text-foreground hover:bg-muted"
           >
             <svg
               xmlns="http://www.w3.org/2000/svg"
@@ -286,8 +150,81 @@ export function ChatListItemMenu({
                 strokeLinecap="round"
                 strokeLinejoin="round"
                 strokeWidth={2}
-                d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"
+                d="M5 5a2 2 0 012-2h10a2 2 0 012 2v16l-7-3.5L5 21V5z"
               />
+            </svg>
+            {isPinned ? 'Unpin' : 'Pin'}
+          </button>
+
+          {/* Archive / Unarchive */}
+          <button
+            onClick={handleArchiveClick}
+            className="flex w-full items-center gap-3 px-4 py-2.5 text-left text-sm text-foreground hover:bg-muted"
+          >
+            <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 8h14M5 8a2 2 0 110-4h14a2 2 0 110 4M5 8v10a2 2 0 002 2h10a2 2 0 002-2V8m-9 4h4" />
+            </svg>
+            {isArchived ? 'Unarchive' : 'Archive'}
+          </button>
+
+          {/* Mute / Unmute */}
+          {isMuted ? (
+            <button
+              onClick={handleUnmuteClick}
+              className="flex w-full items-center gap-3 px-4 py-2.5 text-left text-sm text-foreground hover:bg-muted"
+            >
+              <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.536 8.464a5 5 0 010 7.072m2.828-9.9a9 9 0 010 12.728M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707C10.923 3.663 12 4.109 12 5v14c0 .891-1.077 1.337-1.707.707L5.586 15z" />
+              </svg>
+              Unmute
+            </button>
+          ) : (
+            <div className="relative">
+              <button
+                onClick={() => setShowMuteSubmenu(!showMuteSubmenu)}
+                className="flex w-full items-center justify-between gap-3 px-4 py-2.5 text-left text-sm text-foreground hover:bg-muted"
+              >
+                <span className="flex items-center gap-3">
+                  <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707C10.923 3.663 12 4.109 12 5v14c0 .891-1.077 1.337-1.707.707L5.586 15z" />
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2" />
+                  </svg>
+                  Mute
+                </span>
+                <svg className={cn('h-4 w-4 transition-transform', showMuteSubmenu && 'rotate-90')} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                </svg>
+              </button>
+
+              {/* Mute submenu */}
+              {showMuteSubmenu && (
+                <div className="border-t border-border bg-muted/50 py-1">
+                  <button onClick={() => handleMuteClick('8h')} className="flex w-full items-center gap-3 px-8 py-2.5 text-left text-sm text-muted-foreground hover:bg-muted">
+                    8 hours
+                  </button>
+                  <button onClick={() => handleMuteClick('1w')} className="flex w-full items-center gap-3 px-8 py-2.5 text-left text-sm text-muted-foreground hover:bg-muted">
+                    1 week
+                  </button>
+                  <button onClick={() => handleMuteClick('always')} className="flex w-full items-center gap-3 px-8 py-2.5 text-left text-sm text-muted-foreground hover:bg-muted">
+                    Always
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
+
+          <hr className="my-1.5 border-border" />
+
+          {/* Delete */}
+          <button
+            onClick={handleDeleteClick}
+            className={cn(
+              'flex w-full items-center gap-3 px-4 py-2.5 text-left text-sm hover:bg-destructive/10',
+              showDeleteConfirm ? 'text-destructive font-medium' : 'text-destructive'
+            )}
+          >
+            <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
             </svg>
             {showDeleteConfirm ? 'Click again to confirm' : 'Delete chat'}
           </button>
@@ -312,8 +249,8 @@ export function ChatListItemMenu({
           }
         }}
         className={cn(
-          'rounded-full p-2 text-gray-400 transition-colors hover:bg-gray-200 hover:text-gray-600',
-          isOpenInternal && 'bg-gray-200 text-gray-600'
+          'rounded-full p-2 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground',
+          isOpenInternal && 'bg-muted text-foreground'
         )}
         title="More options"
       >

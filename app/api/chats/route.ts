@@ -55,6 +55,8 @@ export async function GET(request: NextRequest) {
         unread_count,
         is_archived,
         muted_until,
+        is_pinned,
+        pinned_at,
         contact_id,
         created_at,
         updated_at,
@@ -79,7 +81,10 @@ export async function GET(request: NextRequest) {
     }
     // 'include' = no filter, return all
 
+    // Sort pinned chats first, then by last message time
     query = query
+      .order('is_pinned', { ascending: false, nullsFirst: false })
+      .order('pinned_at', { ascending: false, nullsFirst: true })
       .order('last_message_at', { ascending: false, nullsFirst: false })
       .limit(limit)
 

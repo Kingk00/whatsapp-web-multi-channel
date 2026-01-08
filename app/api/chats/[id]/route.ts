@@ -4,10 +4,10 @@ import { createClient, createServiceRoleClient } from '@/lib/supabase/server'
 /**
  * PATCH /api/chats/[id]
  *
- * Update chat properties (archive, mute)
+ * Update chat properties (archive, mute, pin)
  *
  * Body:
- * - action: 'archive' | 'unarchive' | 'mute' | 'unmute'
+ * - action: 'archive' | 'unarchive' | 'mute' | 'unmute' | 'pin' | 'unpin'
  * - duration?: '8h' | '1w' | 'always' (for mute action)
  */
 export async function PATCH(
@@ -31,7 +31,7 @@ export async function PATCH(
     // Verify user has access to this chat
     const { data: chat, error: chatError } = await supabase
       .from('chats')
-      .select('id, channel_id, is_archived, muted_until')
+      .select('id, channel_id, is_archived, muted_until, is_pinned')
       .eq('id', chatId)
       .single()
 
@@ -86,9 +86,27 @@ export async function PATCH(
         responseData = { muted_until: null }
         break
 
+      case 'pin':
+        updateData = {
+          is_pinned: true,
+          pinned_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        }
+        responseData = { is_pinned: true }
+        break
+
+      case 'unpin':
+        updateData = {
+          is_pinned: false,
+          pinned_at: null,
+          updated_at: new Date().toISOString(),
+        }
+        responseData = { is_pinned: false }
+        break
+
       default:
         return NextResponse.json(
-          { error: 'Invalid action. Must be archive, unarchive, mute, or unmute' },
+          { error: 'Invalid action. Must be archive, unarchive, mute, unmute, pin, or unpin' },
           { status: 400 }
         )
     }
@@ -330,6 +348,8 @@ export async function GET(
         unread_count,
         is_archived,
         muted_until,
+        is_pinned,
+        pinned_at,
         contact_id,
         created_at,
         updated_at,
