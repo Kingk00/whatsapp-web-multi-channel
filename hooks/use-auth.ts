@@ -7,7 +7,7 @@
  * with automatic refresh and caching via React Query.
  *
  * Features:
- * - Auto sign-out after 15 minutes of inactivity
+ * - Auto sign-out after 1 hour of inactivity
  */
 
 import { useQuery, useQueryClient } from '@tanstack/react-query'
@@ -17,8 +17,8 @@ import { createClient } from '@/lib/supabase/client'
 import { queryKeys } from '@/lib/query-client'
 import type { AuthChangeEvent, Session } from '@supabase/supabase-js'
 
-// Inactivity timeout in milliseconds (15 minutes)
-const INACTIVITY_TIMEOUT = 15 * 60 * 1000
+// Inactivity timeout in milliseconds (1 hour)
+const INACTIVITY_TIMEOUT = 60 * 60 * 1000
 
 // ============================================================================
 // Types
@@ -154,7 +154,7 @@ export function useAuth(): AuthState & {
     // Only set timeout if authenticated
     if (userData) {
       timeoutRef.current = setTimeout(() => {
-        console.log('User inactive for 15 minutes, signing out...')
+        console.log('User inactive for 1 hour, signing out...')
         signOut()
       }, INACTIVITY_TIMEOUT)
     }
