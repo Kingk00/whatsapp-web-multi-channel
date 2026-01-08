@@ -266,3 +266,120 @@ function normalizePhoneNumber(phone: string): string | null {
 function hashPhone(phone: string): string {
   return createHash('sha256').update(phone).digest('hex')
 }
+
+/**
+ * DELETE /api/contacts
+ *
+ * Bulk delete contacts.
+ *
+ * Body:
+ * - ids: Array of contact IDs to delete (optional - if empty, deletes all)
+ * - delete_all: Boolean to delete all contacts
+ */
+export async function DELETE(request: NextRequest) {
+  try {
+    const supabase = await createClient()
+
+    // Check authentication
+    const {
+      data: { user },
+      error: authError,
+    } = await supabase.auth.getUser()
+
+    if (authError || !user) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    }
+
+    // Get user's workspace and role
+    const { data: profile } = await supabase
+      .from('profiles')
+      .select('workspace_id, role')
+      .eq('user_id', user.id)
+      .single()
+
+    if (!profile) {
+      return NextResponse.json({ error: 'No workspace found' }, { status: 404 })
+    }
+
+    // Only admins can bulk delete
+    if (!['main_admin', 'admin'].includes(profile.role)) {
+      return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+    }
+
+    const body = await request.json()
+    const { ids, delete_all } = body
+
+    const serviceClient = createServiceRoleClient()
+
+    if (delete_all) {
+      // Delete all contacts in workspace
+      // First delete phone lookups
+      const { data: allContacts } = await serviceClient
+        .from('contacts')
+        .select('id')
+        .eq('workspace_id', profile.workspace_id)
+
+      if (allContacts && allContacts.length > 0) {
+        const contactIds = allContacts.map(c => c.id)
+
+        await serviceClient
+          .from('contact_phone_lookup')
+          .delete()
+          .in('contact_id', contactIds)
+
+        const { error: deleteError, count } = await serviceClient
+          .from('contacts')
+          .delete({ count: 'exact' })
+          .eq('workspace_id', profile.workspace_id)
+
+        if (deleteError) {
+          console.error('Error deleting all contacts:', deleteError)
+          return NextResponse.json(
+            { error: 'Failed to delete contacts' },
+            { status: 500 }
+          )
+        }
+
+        return NextResponse.json({ deleted: count || 0 })
+      }
+
+      return NextResponse.json({ deleted: 0 })
+    }
+
+    if (!ids || !Array.isArray(ids) || ids.length === 0) {
+      return NextResponse.json(
+        { error: 'No contact IDs provided' },
+        { status: 400 }
+      )
+    }
+
+    // Delete phone lookups first
+    await serviceClient
+      .from('contact_phone_lookup')
+      .delete()
+      .in('contact_id', ids)
+
+    // Delete contacts (only from user's workspace)
+    const { error: deleteError, count } = await serviceClient
+      .from('contacts')
+      .delete({ count: 'exact' })
+      .in('id', ids)
+      .eq('workspace_id', profile.workspace_id)
+
+    if (deleteError) {
+      console.error('Error deleting contacts:', deleteError)
+      return NextResponse.json(
+        { error: 'Failed to delete contacts' },
+        { status: 500 }
+      )
+    }
+
+    return NextResponse.json({ deleted: count || 0 })
+  } catch (error) {
+    console.error('Contacts DELETE error:', error)
+    return NextResponse.json(
+      { error: 'Internal server error' },
+      { status: 500 }
+    )
+  }
+}

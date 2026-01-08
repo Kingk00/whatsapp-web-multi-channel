@@ -51,6 +51,7 @@ function ContactsSettingsContent() {
   const [isImportModalOpen, setIsImportModalOpen] = useState(false)
   const [isGoogleImportModalOpen, setIsGoogleImportModalOpen] = useState(false)
   const [googleImportLoading, setGoogleImportLoading] = useState(false)
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
   const { addToast } = useToast()
   const queryClient = useQueryClient()
 
@@ -203,6 +204,64 @@ function ContactsSettingsContent() {
     },
   })
 
+  // Bulk delete mutation
+  const bulkDeleteMutation = useMutation({
+    mutationFn: async ({ ids, delete_all }: { ids?: string[]; delete_all?: boolean }) => {
+      const response = await fetch('/api/contacts', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ids, delete_all }),
+      })
+      if (!response.ok) {
+        const error = await response.json()
+        throw new Error(error.error || 'Failed to delete contacts')
+      }
+      return response.json()
+    },
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ['contacts'] })
+      setSelectedIds(new Set())
+      addToast(`Deleted ${data.deleted} contacts`, 'success')
+    },
+    onError: (error: Error) => {
+      addToast(error.message, 'error')
+    },
+  })
+
+  // Selection helpers
+  const toggleSelect = (id: string) => {
+    const newSelected = new Set(selectedIds)
+    if (newSelected.has(id)) {
+      newSelected.delete(id)
+    } else {
+      newSelected.add(id)
+    }
+    setSelectedIds(newSelected)
+  }
+
+  const toggleSelectAll = () => {
+    if (selectedIds.size === contacts.length) {
+      setSelectedIds(new Set())
+    } else {
+      setSelectedIds(new Set(contacts.map((c) => c.id)))
+    }
+  }
+
+  const handleDeleteSelected = () => {
+    if (selectedIds.size === 0) return
+    if (confirm(`Are you sure you want to delete ${selectedIds.size} contacts?`)) {
+      bulkDeleteMutation.mutate({ ids: Array.from(selectedIds) })
+    }
+  }
+
+  const handleDeleteAll = () => {
+    const total = data?.total || 0
+    if (total === 0) return
+    if (confirm(`Are you sure you want to delete ALL ${total} contacts? This cannot be undone.`)) {
+      bulkDeleteMutation.mutate({ delete_all: true })
+    }
+  }
+
   return (
     <div className="flex-1">
       {/* Header */}
@@ -212,10 +271,33 @@ function ContactsSettingsContent() {
             <div>
               <h1 className="text-2xl font-semibold text-gray-900">Contacts</h1>
               <p className="text-sm text-gray-500">
-                Manage your contacts and import from CSV
+                {data?.total !== undefined ? (
+                  <span className="font-medium">{data.total.toLocaleString()} total contacts</span>
+                ) : (
+                  'Manage your contacts and import from CSV'
+                )}
               </p>
             </div>
             <div className="flex gap-2">
+              {/* Bulk action buttons */}
+              {selectedIds.size > 0 && (
+                <button
+                  onClick={handleDeleteSelected}
+                  disabled={bulkDeleteMutation.isPending}
+                  className="rounded-lg border border-red-300 bg-red-50 px-4 py-2 text-sm font-medium text-red-700 hover:bg-red-100 disabled:opacity-50"
+                >
+                  {bulkDeleteMutation.isPending ? 'Deleting...' : `Delete ${selectedIds.size} Selected`}
+                </button>
+              )}
+              {(data?.total || 0) > 0 && selectedIds.size === 0 && (
+                <button
+                  onClick={handleDeleteAll}
+                  disabled={bulkDeleteMutation.isPending}
+                  className="rounded-lg border border-red-300 bg-white px-4 py-2 text-sm font-medium text-red-600 hover:bg-red-50 disabled:opacity-50"
+                >
+                  Delete All
+                </button>
+              )}
               {googleConfig?.configured && (
                 <button
                   onClick={handleGoogleImport}
@@ -298,6 +380,14 @@ function ContactsSettingsContent() {
             <table className="w-full">
               <thead className="border-b border-gray-200 bg-gray-50">
                 <tr>
+                  <th className="w-12 px-4 py-3">
+                    <input
+                      type="checkbox"
+                      checked={contacts.length > 0 && selectedIds.size === contacts.length}
+                      onChange={toggleSelectAll}
+                      className="h-4 w-4 rounded border-gray-300 text-green-600 focus:ring-green-500"
+                    />
+                  </th>
                   <th className="px-6 py-3 text-left text-xs font-medium uppercase text-gray-500">
                     Name
                   </th>
@@ -317,7 +407,21 @@ function ContactsSettingsContent() {
               </thead>
               <tbody className="divide-y divide-gray-200">
                 {contacts.map((contact) => (
-                  <tr key={contact.id} className="hover:bg-gray-50">
+                  <tr
+                    key={contact.id}
+                    className={cn(
+                      'hover:bg-gray-50',
+                      selectedIds.has(contact.id) && 'bg-green-50'
+                    )}
+                  >
+                    <td className="w-12 px-4 py-4">
+                      <input
+                        type="checkbox"
+                        checked={selectedIds.has(contact.id)}
+                        onChange={() => toggleSelect(contact.id)}
+                        className="h-4 w-4 rounded border-gray-300 text-green-600 focus:ring-green-500"
+                      />
+                    </td>
                     <td className="px-6 py-4">
                       <div className="flex items-center gap-3">
                         <div className="flex h-10 w-10 items-center justify-center rounded-full bg-gray-200 text-gray-600">
