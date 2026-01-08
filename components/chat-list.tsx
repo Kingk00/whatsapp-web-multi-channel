@@ -524,10 +524,31 @@ function ChatListItem({
         onTouchEnd={handleTouchEnd}
         onTouchMove={handleTouchMove}
       >
-        {/* Pin indicator */}
+        {/* Pin indicator and unpin button */}
         {chat.is_pinned && (
-          <div className="absolute top-2 right-2 text-whatsapp-500">
-            <PinIcon className="h-3 w-3" />
+          <div className="absolute top-2 right-2 flex items-center gap-1">
+            {/* Pin icon - always visible */}
+            <span className="text-whatsapp-600" title="Pinned">
+              <PinFilledIcon className="h-4 w-4" />
+            </span>
+            {/* Unpin button - shows on hover (desktop) or always visible on mobile */}
+            <button
+              onClick={(e) => {
+                e.stopPropagation()
+                onPin()
+              }}
+              className={cn(
+                'p-1 rounded-full bg-muted/80 hover:bg-muted text-muted-foreground hover:text-foreground',
+                'transition-all duration-fast',
+                'md:opacity-0 md:group-hover:opacity-100', // Hidden on desktop until hover
+                'active:scale-95'
+              )}
+              title="Unpin"
+            >
+              <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </button>
           </div>
         )}
 
@@ -648,6 +669,15 @@ function PinIcon({ className }: { className?: string }) {
   return (
     <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor">
       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 5a2 2 0 012-2h10a2 2 0 012 2v16l-7-3.5L5 21V5z" />
+    </svg>
+  )
+}
+
+// Filled pin icon for pinned indicator (more visible)
+function PinFilledIcon({ className }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="currentColor">
+      <path d="M5 5a2 2 0 012-2h10a2 2 0 012 2v16l-7-3.5L5 21V5z" />
     </svg>
   )
 }
