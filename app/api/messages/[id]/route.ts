@@ -117,7 +117,16 @@ export async function PATCH(
       const whapiToken = decrypt(tokenData.encrypted_token)
 
       // Get the chat's WhatsApp ID (phone number or group ID)
-      const waChatId = (message.chats as { wa_chat_id: string }).wa_chat_id
+      // Handle both array and object response from Supabase join
+      const chatsData = message.chats as { wa_chat_id: string } | { wa_chat_id: string }[]
+      const waChatId = Array.isArray(chatsData) ? chatsData[0]?.wa_chat_id : chatsData?.wa_chat_id
+
+      if (!waChatId) {
+        return NextResponse.json(
+          { error: 'Chat not found for this message' },
+          { status: 500 }
+        )
+      }
 
       // Call WhatsApp API to edit the message
       // Whapi uses POST /messages/text with an "edit" parameter
