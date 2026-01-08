@@ -99,9 +99,13 @@ export function ChatView({ chatId, onBack }: ChatViewProps) {
         .single()
 
       if (error) throw error
+      // Handle both array and object responses from Supabase join
+      const channelData = Array.isArray(data.channels)
+        ? data.channels[0]
+        : data.channels
       return {
         ...data,
-        channel: data.channels?.[0] || null,
+        channel: channelData || null,
       } as Chat
     },
   })
@@ -1335,10 +1339,17 @@ function MessageComposer({
               ))}
             </div>
           )}
-          {showQuickReplies && filteredQuickReplies.length === 0 && quickReplyFilter && (
+          {showQuickReplies && filteredQuickReplies.length === 0 && quickReplyFilter && quickReplies.length > 0 && (
             <div className="absolute bottom-full left-0 right-0 mb-2 rounded-lg border border-border bg-card shadow-lg p-3 z-10">
               <p className="text-sm text-muted-foreground text-center">
                 No quick replies match &quot;/{quickReplyFilter}&quot;
+              </p>
+            </div>
+          )}
+          {showQuickReplies && quickReplies.length === 0 && (
+            <div className="absolute bottom-full left-0 right-0 mb-2 rounded-lg border border-border bg-card shadow-lg p-3 z-10">
+              <p className="text-sm text-muted-foreground text-center">
+                No quick replies for this channel
               </p>
             </div>
           )}
