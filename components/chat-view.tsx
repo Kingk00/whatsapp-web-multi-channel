@@ -221,7 +221,7 @@ export function ChatView({ chatId, onBack }: ChatViewProps) {
       </div>
 
       {/* Composer */}
-      <MessageComposer chatId={chatId} channelColor={chat?.channel?.color} />
+      <MessageComposer chatId={chatId} channelId={chat?.channel?.id} channelColor={chat?.channel?.color} />
     </div>
   )
 }
@@ -854,22 +854,61 @@ interface ViewOnceState {
   }
 }
 
+interface QuickReply {
+  id: string
+  shortcut: string
+  title: string | null
+  text_body: string | null
+  attachments?: Array<{
+    id: string
+    kind: string
+    filename: string
+    url?: string
+  }>
+}
+
 function MessageComposer({
   chatId,
+  channelId,
   channelColor,
 }: {
   chatId: string
+  channelId: string | undefined
   channelColor: string | null | undefined
 }) {
   const [text, setText] = useState('')
   const [selectedFile, setSelectedFile] = useState<SelectedFile | null>(null)
   const [isViewOnce, setIsViewOnce] = useState(false)
   const [uploadProgress, setUploadProgress] = useState(0)
+  const [showQuickReplies, setShowQuickReplies] = useState(false)
+  const [quickReplyFilter, setQuickReplyFilter] = useState('')
+  const [selectedQuickReplyIndex, setSelectedQuickReplyIndex] = useState(0)
   const inputRef = useRef<HTMLTextAreaElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
+  const quickReplyRef = useRef<HTMLDivElement>(null)
   const queryClient = useQueryClient()
   const { getDraft, setDraft, clearDraft } = useUIStore()
   const { addToast } = useToast()
+
+  // Fetch quick replies for this channel
+  const { data: quickRepliesData } = useQuery({
+    queryKey: ['quick-replies', channelId],
+    queryFn: async () => {
+      if (!channelId) return { quickReplies: [] }
+      const response = await fetch(`/api/quick-replies?channel_id=${channelId}`)
+      if (!response.ok) return { quickReplies: [] }
+      return response.json()
+    },
+    enabled: !!channelId,
+    staleTime: 60000, // Cache for 1 minute
+  })
+
+  const quickReplies: QuickReply[] = quickRepliesData?.quickReplies || []
+
+  // Filter quick replies based on what user types after /
+  const filteredQuickReplies = quickReplies.filter((qr) =>
+    qr.shortcut.toLowerCase().includes(quickReplyFilter.toLowerCase())
+  )
 
   // Load draft on mount
   useEffect(() => {
@@ -1062,7 +1101,62 @@ function MessageComposer({
   // Check if view-once is available for selected file
   const canBeViewOnce = selectedFile && (selectedFile.type === 'image' || selectedFile.type === 'video')
 
+  // Handle text change - detect "/" for quick replies
+  const handleTextChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+    const newText = e.target.value
+    setText(newText)
+
+    // Check if text starts with "/" for quick reply mode
+    if (newText.startsWith('/')) {
+      setShowQuickReplies(true)
+      setQuickReplyFilter(newText.slice(1)) // Remove the "/" from filter
+      setSelectedQuickReplyIndex(0)
+    } else {
+      setShowQuickReplies(false)
+      setQuickReplyFilter('')
+    }
+  }
+
+  // Select a quick reply
+  const selectQuickReply = (qr: QuickReply) => {
+    // Insert the quick reply text
+    setText(qr.text_body || '')
+    setShowQuickReplies(false)
+    setQuickReplyFilter('')
+    inputRef.current?.focus()
+  }
+
   const handleKeyDown = (e: React.KeyboardEvent) => {
+    // Handle quick reply navigation
+    if (showQuickReplies && filteredQuickReplies.length > 0) {
+      if (e.key === 'ArrowDown') {
+        e.preventDefault()
+        setSelectedQuickReplyIndex((prev) =>
+          prev < filteredQuickReplies.length - 1 ? prev + 1 : 0
+        )
+        return
+      }
+      if (e.key === 'ArrowUp') {
+        e.preventDefault()
+        setSelectedQuickReplyIndex((prev) =>
+          prev > 0 ? prev - 1 : filteredQuickReplies.length - 1
+        )
+        return
+      }
+      if (e.key === 'Enter' || e.key === 'Tab') {
+        e.preventDefault()
+        selectQuickReply(filteredQuickReplies[selectedQuickReplyIndex])
+        return
+      }
+      if (e.key === 'Escape') {
+        e.preventDefault()
+        setShowQuickReplies(false)
+        setText('')
+        return
+      }
+    }
+
+    // Normal send behavior
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault()
       handleSend()
@@ -1202,14 +1296,58 @@ function MessageComposer({
           </svg>
         </button>
 
-        {/* Text input */}
-        <div className="flex-1 min-w-0">
+        {/* Text input with quick reply dropdown */}
+        <div className="flex-1 min-w-0 relative">
+          {/* Quick reply suggestions dropdown */}
+          {showQuickReplies && filteredQuickReplies.length > 0 && (
+            <div
+              ref={quickReplyRef}
+              className="absolute bottom-full left-0 right-0 mb-2 max-h-48 overflow-y-auto rounded-lg border border-border bg-card shadow-lg z-10"
+            >
+              {filteredQuickReplies.map((qr, index) => (
+                <button
+                  key={qr.id}
+                  type="button"
+                  onClick={() => selectQuickReply(qr)}
+                  className={cn(
+                    'w-full px-3 py-2 text-left hover:bg-muted/50 transition-colors',
+                    'flex items-center justify-between gap-2',
+                    index === selectedQuickReplyIndex && 'bg-muted/50'
+                  )}
+                >
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-2">
+                      <code className="text-sm font-mono text-whatsapp-600">/{qr.shortcut}</code>
+                      {qr.attachments && qr.attachments.length > 0 && (
+                        <span className="text-xs text-blue-500 flex items-center gap-0.5">
+                          <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" />
+                          </svg>
+                          {qr.attachments.length}
+                        </span>
+                      )}
+                    </div>
+                    <p className="text-sm text-muted-foreground truncate">
+                      {qr.text_body || '(media only)'}
+                    </p>
+                  </div>
+                </button>
+              ))}
+            </div>
+          )}
+          {showQuickReplies && filteredQuickReplies.length === 0 && quickReplyFilter && (
+            <div className="absolute bottom-full left-0 right-0 mb-2 rounded-lg border border-border bg-card shadow-lg p-3 z-10">
+              <p className="text-sm text-muted-foreground text-center">
+                No quick replies match &quot;/{quickReplyFilter}&quot;
+              </p>
+            </div>
+          )}
           <textarea
             ref={inputRef}
             value={text}
-            onChange={(e) => setText(e.target.value)}
+            onChange={handleTextChange}
             onKeyDown={handleKeyDown}
-            placeholder={selectedFile ? "Add a caption..." : "Type a message"}
+            placeholder={selectedFile ? "Add a caption..." : "Type a message or / for quick replies"}
             className={cn(
               "w-full resize-none rounded-full bg-muted/50 px-4 py-2.5 text-[15px]",
               "placeholder:text-muted-foreground/60",

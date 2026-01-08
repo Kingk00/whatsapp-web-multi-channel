@@ -79,9 +79,9 @@ export default function QuickRepliesSettingsPage() {
     (r: QuickReply) => r.scope === 'channel'
   )
 
-  // Create mutation
+  // Create mutation - returns the new quick reply for file uploads
   const createMutation = useMutation({
-    mutationFn: async (data: Partial<QuickReply>) => {
+    mutationFn: async (data: Partial<QuickReply> & { has_pending_media?: boolean }) => {
       const response = await fetch('/api/quick-replies', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -98,8 +98,7 @@ export default function QuickRepliesSettingsPage() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['quick-replies'] })
-      setIsCreateModalOpen(false)
-      addToast('Quick reply created', 'success')
+      // Note: Modal close is handled in the form after file uploads complete
     },
     onError: (error: Error) => {
       addToast(error.message, 'error')
@@ -353,12 +352,22 @@ export default function QuickRepliesSettingsPage() {
             setIsCreateModalOpen(false)
             setEditingReply(null)
           }}
-          onSave={(data) => {
+          onSave={async (data, pendingFiles) => {
             if (editingReply) {
               updateMutation.mutate({ id: editingReply.id, ...data })
+              return editingReply.id
             } else {
-              createMutation.mutate(data)
+              const result = await createMutation.mutateAsync({
+                ...data,
+                has_pending_media: pendingFiles.length > 0,
+              })
+              return result.quickReply?.id
             }
+          }}
+          onComplete={() => {
+            setIsCreateModalOpen(false)
+            setEditingReply(null)
+            addToast(editingReply ? 'Quick reply updated' : 'Quick reply created', 'success')
           }}
           isPending={createMutation.isPending || updateMutation.isPending}
         />
@@ -371,7 +380,8 @@ interface QuickReplyFormModalProps {
   reply: QuickReply | null
   channels: Channel[]
   onClose: () => void
-  onSave: (data: Partial<QuickReply>) => void
+  onSave: (data: Partial<QuickReply>, pendingFiles: PendingFile[]) => Promise<string | undefined>
+  onComplete: () => void
   isPending: boolean
 }
 
@@ -386,6 +396,7 @@ function QuickReplyFormModal({
   channels,
   onClose,
   onSave,
+  onComplete,
   isPending,
 }: QuickReplyFormModalProps) {
   const [shortcut, setShortcut] = useState(reply?.shortcut || '')
@@ -396,6 +407,9 @@ function QuickReplyFormModal({
   )
   const [pendingFiles, setPendingFiles] = useState<PendingFile[]>([])
   const [uploadingFiles, setUploadingFiles] = useState(false)
+
+  // Check if there's any media (existing or pending)
+  const hasMedia = existingAttachments.length > 0 || pendingFiles.length > 0
   const [deletingAttachmentId, setDeletingAttachmentId] = useState<string | null>(null)
   const fileInputRef = React.useRef<HTMLInputElement>(null)
   const { addToast } = useToast()
@@ -508,21 +522,21 @@ function QuickReplyFormModal({
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
 
-    // For new quick replies, create first then upload files
-    // For existing, save changes then upload new files
-    onSave({
+    // Save the quick reply first
+    const quickReplyId = await onSave({
       shortcut,
-      text_body: textBody,
+      text_body: textBody || null,
       channel_id: channelId,
-    })
-  }
+    }, pendingFiles)
 
-  // After successful save, upload pending files
-  React.useEffect(() => {
-    if (!isPending && reply?.id && pendingFiles.length > 0) {
-      uploadPendingFiles(reply.id)
+    // Upload any pending files
+    if (quickReplyId && pendingFiles.length > 0) {
+      await uploadPendingFiles(quickReplyId)
     }
-  }, [isPending])
+
+    // Close the modal and notify parent
+    onComplete()
+  }
 
   const getAttachmentIcon = (type: string) => {
     switch (type) {
@@ -607,7 +621,7 @@ function QuickReplyFormModal({
             {/* Message */}
             <div>
               <label className="mb-1 block text-sm font-medium text-gray-700">
-                Message *
+                Message {hasMedia ? '(optional with media)' : '*'}
               </label>
               <textarea
                 value={textBody}
@@ -615,8 +629,13 @@ function QuickReplyFormModal({
                 placeholder="Hello! How can I help you today?"
                 rows={4}
                 className="w-full rounded-lg border border-gray-300 px-3 py-2 focus:border-green-500 focus:outline-none focus:ring-1 focus:ring-green-500"
-                required
+                required={!hasMedia}
               />
+              {hasMedia && !textBody.trim() && (
+                <p className="mt-1 text-xs text-green-600">
+                  Message is optional when attaching media
+                </p>
+              )}
             </div>
 
             {/* Media Attachments */}
@@ -722,7 +741,7 @@ function QuickReplyFormModal({
             </button>
             <button
               type="submit"
-              disabled={isPending || uploadingFiles || !shortcut.trim() || !textBody.trim() || !channelId}
+              disabled={isPending || uploadingFiles || !shortcut.trim() || (!textBody.trim() && !hasMedia) || !channelId}
               className="rounded-lg bg-green-600 px-4 py-2 text-sm font-medium text-white hover:bg-green-700 disabled:opacity-50"
             >
               {isPending ? 'Saving...' : uploadingFiles ? 'Uploading...' : 'Save'}

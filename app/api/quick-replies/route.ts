@@ -102,11 +102,20 @@ export async function POST(request: NextRequest) {
     }
 
     const body = await request.json()
-    const { shortcut, title, text_body, channel_id, scope = 'global' } = body
+    const { shortcut, title, text_body, channel_id, scope = 'global', has_pending_media = false } = body
 
-    if (!shortcut || !text_body) {
+    // Shortcut is always required
+    if (!shortcut) {
       return NextResponse.json(
-        { error: 'Shortcut and text body are required' },
+        { error: 'Shortcut is required' },
+        { status: 400 }
+      )
+    }
+
+    // Text body is required unless there will be media attached
+    if (!text_body && !has_pending_media) {
+      return NextResponse.json(
+        { error: 'Message is required (unless adding media)' },
         { status: 400 }
       )
     }
@@ -117,6 +126,40 @@ export async function POST(request: NextRequest) {
         { error: 'Shortcut must contain only letters, numbers, underscores, and hyphens' },
         { status: 400 }
       )
+    }
+
+    // Check if shortcut already exists globally (applies to all channels)
+    const { data: globalExisting } = await supabase
+      .from('quick_replies')
+      .select('id, scope, channel_id')
+      .eq('workspace_id', profile.workspace_id)
+      .eq('shortcut', shortcut.toLowerCase())
+      .is('channel_id', null)
+      .single()
+
+    if (globalExisting) {
+      return NextResponse.json(
+        { error: 'This shortcut is already used for all channels. Please choose a different shortcut.' },
+        { status: 409 }
+      )
+    }
+
+    // If creating for a specific channel, also check that channel doesn't already have this shortcut
+    if (channel_id) {
+      const { data: channelExisting } = await supabase
+        .from('quick_replies')
+        .select('id')
+        .eq('workspace_id', profile.workspace_id)
+        .eq('shortcut', shortcut.toLowerCase())
+        .eq('channel_id', channel_id)
+        .single()
+
+      if (channelExisting) {
+        return NextResponse.json(
+          { error: 'This shortcut already exists for this channel' },
+          { status: 409 }
+        )
+      }
     }
 
     const { data: quickReply, error } = await supabase
