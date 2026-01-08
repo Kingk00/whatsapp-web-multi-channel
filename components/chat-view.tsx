@@ -188,12 +188,7 @@ export function ChatView({ chatId, onBack }: ChatViewProps) {
       <ChatHeader chat={chat} displayName={displayName} presence={presence} onBack={onBack} />
 
       {/* Messages */}
-      <div
-        className="flex-1 overflow-y-auto px-4 py-2"
-        style={{
-          backgroundImage: `url("data:image/svg+xml,%3Csvg width='60' height='60' viewBox='0 0 60 60' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='none' fill-rule='evenodd'%3E%3Cg fill='%23d5d1c9' fill-opacity='0.4'%3E%3Cpath d='M36 34v-4h-2v4h-4v2h4v4h2v-4h4v-2h-4zm0-30V0h-2v4h-4v2h4v4h2V6h4V4h-4zM6 34v-4H4v4H0v2h4v4h2v-4h4v-2H6zM6 4V0H4v4H0v2h4v4h2V6h4V4H6z'/%3E%3C/g%3E%3C/g%3E%3C/svg%3E")`,
-        }}
-      >
+      <div className="flex-1 overflow-y-auto px-3 md:px-4 py-2 chat-pattern scrollbar-thin">
         {messagesLoading ? (
           <MessagesSkeleton />
         ) : messages.length === 0 ? (
@@ -372,8 +367,8 @@ function ChatHeader({
 
 function DateHeader({ date }: { date: Date }) {
   return (
-    <div className="flex justify-center py-2">
-      <span className="rounded-lg bg-white px-3 py-1 text-xs text-gray-500 shadow-sm">
+    <div className="flex justify-center py-3">
+      <span className="rounded-lg bg-white/90 dark:bg-card/90 backdrop-blur-sm px-4 py-1.5 text-xs font-medium text-muted-foreground shadow-sm">
         {formatMessageDateHeader(date)}
       </span>
     </div>
@@ -389,25 +384,42 @@ function MessageBubble({ message }: { message: Message }) {
 
   return (
     <div
-      className={cn('flex', isOutbound ? 'justify-end' : 'justify-start')}
+      className={cn(
+        'flex animate-in fade-in slide-in-from-bottom-2 duration-200',
+        isOutbound ? 'justify-end' : 'justify-start'
+      )}
     >
       <div
         className={cn(
-          'max-w-[65%] rounded-lg shadow-sm overflow-hidden',
-          isOutbound ? 'bg-[#d9fdd3]' : 'bg-white',
+          'relative max-w-[75%] md:max-w-[65%] overflow-hidden',
+          // Bubble shape with tail
+          isOutbound
+            ? 'bg-bubble-outbound dark:bg-bubble-outbound-dark rounded-2xl rounded-tr-sm'
+            : 'bg-bubble-inbound dark:bg-bubble-inbound-dark rounded-2xl rounded-tl-sm',
+          // Shadow
+          'shadow-message',
+          // Padding
           hasMedia ? 'p-1' : 'px-3 py-2'
         )}
       >
         {/* Sender name (for group chats) */}
         {!isOutbound && message.sender_name && (
-          <p className={cn("text-xs font-medium text-green-600", hasMedia ? "px-2 pt-1 mb-1" : "mb-1")}>
+          <p className={cn(
+            "text-xs font-semibold text-whatsapp-600",
+            hasMedia ? "px-2 pt-1 mb-1" : "mb-1"
+          )}>
             {message.sender_name}
           </p>
         )}
 
         {/* Message content */}
         {message.deleted_at ? (
-          <p className="italic text-gray-400 px-2 py-1">This message was deleted</p>
+          <p className="italic text-muted-foreground px-2 py-1 flex items-center gap-1.5">
+            <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636" />
+            </svg>
+            This message was deleted
+          </p>
         ) : (
           <>
             {/* Media content */}
@@ -416,7 +428,7 @@ function MessageBubble({ message }: { message: Message }) {
             {/* Text content */}
             {message.text && (
               <p className={cn(
-                "whitespace-pre-wrap break-words text-sm text-gray-900",
+                "whitespace-pre-wrap break-words text-[15px] leading-relaxed text-foreground",
                 hasMedia ? "px-2 py-1" : ""
               )}>
                 {message.text}
@@ -425,7 +437,7 @@ function MessageBubble({ message }: { message: Message }) {
 
             {/* Text-only message */}
             {!hasMedia && !message.text && (
-              <p className="text-sm text-gray-500 italic">
+              <p className="text-sm text-muted-foreground italic">
                 [{message.message_type} message]
               </p>
             )}
@@ -435,15 +447,15 @@ function MessageBubble({ message }: { message: Message }) {
         {/* Footer with time and status */}
         <div
           className={cn(
-            'flex items-center gap-1',
+            'flex items-center gap-1 select-none',
             hasMedia ? 'px-2 pb-1' : 'mt-1',
             isOutbound ? 'justify-end' : 'justify-start'
           )}
         >
           {message.edited_at && (
-            <span className="text-[10px] text-gray-400">edited</span>
+            <span className="text-[10px] text-muted-foreground/70 italic">edited</span>
           )}
-          <span className="text-[10px] text-gray-400">
+          <span className="text-[10px] text-muted-foreground/70">
             {formatMessageTime(new Date(message.created_at))}
           </span>
           {isOutbound && <MessageStatus status={message.status} />}
@@ -1069,12 +1081,12 @@ function MessageComposer({
   const canSend = selectedFile || text.trim()
 
   return (
-    <div className="border-t border-gray-200 bg-gray-50 p-3">
+    <div className="border-t border-border bg-card p-3 md:p-4">
       {/* Channel indicator */}
-      <div className="mb-2 flex items-center gap-2 text-xs text-gray-500">
+      <div className="mb-2 flex items-center gap-2 text-xs text-muted-foreground">
         <div
-          className="h-2 w-2 rounded-full"
-          style={{ backgroundColor: channelColor || '#10b981' }}
+          className="h-2 w-2 rounded-full animate-pulse"
+          style={{ backgroundColor: channelColor || '#25D366' }}
         />
         <span>Sending as this channel</span>
       </div>
@@ -1167,23 +1179,12 @@ function MessageComposer({
         {/* File attachment button */}
         <button
           onClick={() => fileInputRef.current?.click()}
-          className="rounded-full p-2 text-gray-500 hover:bg-gray-200"
+          className="btn-icon flex-shrink-0"
           title="Attach file"
           disabled={isPending}
         >
-          <svg
-            xmlns="http://www.w3.org/2000/svg"
-            className="h-6 w-6"
-            fill="none"
-            viewBox="0 0 24 24"
-            stroke="currentColor"
-          >
-            <path
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              strokeWidth={2}
-              d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13"
-            />
+          <svg className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" />
           </svg>
         </button>
         <input
@@ -1195,32 +1196,26 @@ function MessageComposer({
         />
 
         {/* Emoji button (placeholder) */}
-        <button className="rounded-full p-2 text-gray-500 hover:bg-gray-200">
-          <svg
-            xmlns="http://www.w3.org/2000/svg"
-            className="h-6 w-6"
-            fill="none"
-            viewBox="0 0 24 24"
-            stroke="currentColor"
-          >
-            <path
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              strokeWidth={2}
-              d="M14.828 14.828a4 4 0 01-5.656 0M9 10h.01M15 10h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
-            />
+        <button className="btn-icon flex-shrink-0 hidden md:flex">
+          <svg className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14.828 14.828a4 4 0 01-5.656 0M9 10h.01M15 10h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
           </svg>
         </button>
 
         {/* Text input */}
-        <div className="flex-1">
+        <div className="flex-1 min-w-0">
           <textarea
             ref={inputRef}
             value={text}
             onChange={(e) => setText(e.target.value)}
             onKeyDown={handleKeyDown}
             placeholder={selectedFile ? "Add a caption..." : "Type a message"}
-            className="w-full resize-none rounded-lg bg-white px-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
+            className={cn(
+              "w-full resize-none rounded-full bg-muted/50 px-4 py-2.5 text-[15px]",
+              "placeholder:text-muted-foreground/60",
+              "focus:outline-none focus:ring-2 focus:ring-whatsapp-500/50 focus:bg-muted",
+              "transition-all duration-fast"
+            )}
             rows={1}
             disabled={isPending}
           />
@@ -1231,33 +1226,21 @@ function MessageComposer({
           onClick={handleSend}
           disabled={!canSend || isPending}
           className={cn(
-            'rounded-full p-2 transition-colors',
+            'flex-shrink-0 rounded-full p-2.5 transition-all duration-fast touch-target',
             canSend && !isPending
-              ? 'bg-green-500 text-white hover:bg-green-600'
-              : 'text-gray-400'
+              ? 'bg-gradient-to-r from-whatsapp-500 to-whatsapp-teal text-white shadow-sm hover:shadow-md active:scale-95'
+              : 'text-muted-foreground bg-muted/30'
           )}
         >
           {isPending ? (
             <div className="h-6 w-6 animate-spin rounded-full border-2 border-white border-t-transparent" />
           ) : (
-            <svg
-              xmlns="http://www.w3.org/2000/svg"
-              className="h-6 w-6"
-              fill="none"
-              viewBox="0 0 24 24"
-              stroke="currentColor"
-            >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth={2}
-                d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8"
-              />
+            <svg className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />
             </svg>
           )}
         </button>
       </div>
-
     </div>
   )
 }

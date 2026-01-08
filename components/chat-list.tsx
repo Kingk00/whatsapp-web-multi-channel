@@ -23,6 +23,8 @@ import { ChatListSkeleton } from '@/components/ui/skeleton'
 import { ChatListItemMenu } from '@/components/chat-list-item-menu'
 import { useToast } from '@/components/ui/toast'
 import { getDisplayName } from '@/lib/chat-helpers'
+import { Avatar } from '@/components/ui/avatar'
+import { Badge, ChannelBadge } from '@/components/ui/badge'
 
 interface Chat {
   id: string
@@ -299,7 +301,7 @@ export function ChatList({
   }
 
   return (
-    <div className="divide-y divide-gray-100">
+    <div className="divide-y divide-border">
       {/* Active chats */}
       {chats.map((chat) => (
         <ChatListItem
@@ -320,28 +322,16 @@ export function ChatList({
         <>
           <button
             onClick={() => setShowArchived(!showArchived)}
-            className="flex w-full items-center justify-between bg-gray-50 px-4 py-2 text-sm text-gray-600 hover:bg-gray-100"
+            className="flex w-full items-center justify-between bg-muted/50 px-4 py-2.5 text-sm text-muted-foreground hover:bg-muted transition-colors"
           >
             <span className="flex items-center gap-2">
-              <svg
-                xmlns="http://www.w3.org/2000/svg"
-                className="h-4 w-4"
-                fill="none"
-                viewBox="0 0 24 24"
-                stroke="currentColor"
-              >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  strokeWidth={2}
-                  d="M5 8h14M5 8a2 2 0 110-4h14a2 2 0 110 4M5 8v10a2 2 0 002 2h10a2 2 0 002-2V8m-9 4h4"
-                />
+              <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 8h14M5 8a2 2 0 110-4h14a2 2 0 110 4M5 8v10a2 2 0 002 2h10a2 2 0 002-2V8m-9 4h4" />
               </svg>
               Archived ({archivedChats.length})
             </span>
             <svg
-              xmlns="http://www.w3.org/2000/svg"
-              className={cn('h-4 w-4 transition-transform', showArchived && 'rotate-180')}
+              className={cn('h-4 w-4 transition-transform duration-normal', showArchived && 'rotate-180')}
               fill="none"
               viewBox="0 0 24 24"
               stroke="currentColor"
@@ -351,7 +341,7 @@ export function ChatList({
           </button>
 
           {showArchived && (
-            <div className="bg-gray-50">
+            <div className="bg-muted/30">
               {filteredArchivedChats.map((chat) => (
                 <ChatListItem
                   key={chat.id}
@@ -400,7 +390,6 @@ function ChatListItem({
 
   // Use getDisplayName for proper priority: contact name > phone > WA name
   const displayName = getDisplayName(chat)
-  const initials = getInitials(displayName)
   const timeAgo = chat.last_message_at
     ? formatDistanceToNow(new Date(chat.last_message_at))
     : ''
@@ -429,55 +418,29 @@ function ChatListItem({
     <div
       ref={itemRef}
       className={cn(
-        'group relative flex w-full items-start gap-3 px-4 py-3 text-left transition-colors hover:bg-gray-50',
-        isSelected && 'bg-gray-100'
+        'group relative flex w-full items-center gap-3 px-4 min-h-[72px] py-3 text-left transition-colors duration-fast',
+        'hover:bg-muted/50 active:bg-muted touch-target',
+        isSelected && 'bg-whatsapp-50 dark:bg-whatsapp-900/20 border-l-4 border-l-whatsapp-500'
       )}
       onMouseMove={handleMouseMove}
       onMouseLeave={handleMouseLeave}
     >
       {/* Main clickable area */}
-      <button onClick={onSelect} className="flex flex-1 items-start gap-3">
-        {/* Avatar */}
+      <button onClick={onSelect} className="flex flex-1 items-center gap-3 min-w-0">
+        {/* Avatar with channel indicator */}
         <div className="relative flex-shrink-0">
-          {chat.profile_photo_url ? (
-            <img
-              src={chat.profile_photo_url}
-              alt={displayName}
-              className="h-12 w-12 rounded-full object-cover"
-            />
-          ) : (
-            <div
-              className={cn(
-                'flex h-12 w-12 items-center justify-center rounded-full text-white',
-                chat.is_group ? 'bg-blue-500' : 'bg-gray-400'
-              )}
-            >
-              {chat.is_group ? (
-                <svg
-                  xmlns="http://www.w3.org/2000/svg"
-                  className="h-6 w-6"
-                  fill="none"
-                  viewBox="0 0 24 24"
-                  stroke="currentColor"
-                >
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    strokeWidth={2}
-                    d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z"
-                  />
-                </svg>
-              ) : (
-                <span className="text-lg font-medium">{initials}</span>
-              )}
-            </div>
-          )}
+          <Avatar
+            src={chat.profile_photo_url}
+            alt={displayName}
+            fallback={displayName}
+            size="lg"
+          />
 
-          {/* Channel badge (in unified inbox) */}
+          {/* Channel color indicator (in unified inbox) */}
           {showChannelBadge && (
             <div
-              className="absolute -bottom-1 -right-1 h-4 w-4 rounded-full border-2 border-white"
-              style={{ backgroundColor: chat.channel.color || '#10b981' }}
+              className="absolute -bottom-0.5 -right-0.5 h-4 w-4 rounded-full border-2 border-background shadow-sm"
+              style={{ backgroundColor: chat.channel.color || '#25D366' }}
               title={chat.channel.name}
             />
           )}
@@ -485,59 +448,66 @@ function ChatListItem({
 
         {/* Content */}
         <div className="min-w-0 flex-1">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <h3 className="truncate font-medium text-gray-900">{displayName}</h3>
+          {/* Top row: Name + Time */}
+          <div className="flex items-center justify-between gap-2">
+            <div className="flex items-center gap-1.5 min-w-0">
+              <h3 className={cn(
+                'truncate text-[15px] font-medium',
+                chat.unread_count > 0 ? 'text-foreground' : 'text-foreground/90'
+              )}>
+                {displayName}
+              </h3>
+
+              {/* Group icon */}
+              {chat.is_group && (
+                <svg className="h-4 w-4 flex-shrink-0 text-muted-foreground" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
+                </svg>
+              )}
+
               {/* Muted indicator */}
               {chat.is_muted && (
                 <span title="Muted">
-                  <svg
-                    xmlns="http://www.w3.org/2000/svg"
-                    className="h-4 w-4 flex-shrink-0 text-gray-400"
-                    fill="none"
-                    viewBox="0 0 24 24"
-                    stroke="currentColor"
-                  >
-                    <path
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      strokeWidth={2}
-                      d="M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707C10.923 3.663 12 4.109 12 5v14c0 .891-1.077 1.337-1.707.707L5.586 15z"
-                    />
-                    <path
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      strokeWidth={2}
-                      d="M17 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2"
-                    />
+                  <svg className="h-4 w-4 flex-shrink-0 text-muted-foreground" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707C10.923 3.663 12 4.109 12 5v14c0 .891-1.077 1.337-1.707.707L5.586 15z" />
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2" />
                   </svg>
                 </span>
               )}
             </div>
-            <span className="flex-shrink-0 text-xs text-gray-500">{timeAgo}</span>
+
+            <span className={cn(
+              'flex-shrink-0 text-xs',
+              chat.unread_count > 0 ? 'text-whatsapp-600 font-medium' : 'text-muted-foreground'
+            )}>
+              {timeAgo}
+            </span>
           </div>
 
-          <div className="mt-1 flex items-center justify-between">
-            <p className="truncate text-sm text-gray-500">
+          {/* Bottom row: Message preview + Unread badge */}
+          <div className="mt-1 flex items-center justify-between gap-2">
+            <p className={cn(
+              'truncate text-sm',
+              chat.unread_count > 0 ? 'text-foreground/80' : 'text-muted-foreground'
+            )}>
               {chat.last_message_preview || 'No messages yet'}
             </p>
 
             {/* Unread badge */}
             {chat.unread_count > 0 && (
-              <span className="ml-2 flex-shrink-0 rounded-full bg-green-500 px-2 py-0.5 text-xs font-medium text-white">
+              <Badge variant="primary" className="flex-shrink-0 animate-in fade-in zoom-in duration-200">
                 {chat.unread_count > 99 ? '99+' : chat.unread_count}
-              </span>
+              </Badge>
             )}
           </div>
 
           {/* Channel name (in unified inbox) */}
           {showChannelBadge && (
-            <p
-              className="mt-1 truncate text-xs"
-              style={{ color: chat.channel.color || '#10b981' }}
-            >
-              {chat.channel.name}
-            </p>
+            <ChannelBadge
+              name={chat.channel.name}
+              color={chat.channel.color || '#25D366'}
+              className="mt-1.5"
+            />
           )}
         </div>
       </button>
@@ -545,8 +515,8 @@ function ChatListItem({
       {/* Hover menu - only shows on right side hover */}
       <div
         className={cn(
-          'absolute right-3 top-1/2 -translate-y-1/2 transition-opacity duration-150',
-          showMenu || menuOpen ? 'opacity-100' : 'opacity-0 pointer-events-none'
+          'absolute right-3 top-1/2 -translate-y-1/2 transition-all duration-fast',
+          showMenu || menuOpen ? 'opacity-100 scale-100' : 'opacity-0 scale-95 pointer-events-none'
         )}
       >
         <ChatListItemMenu
@@ -564,14 +534,3 @@ function ChatListItem({
   )
 }
 
-/**
- * Get initials from a name
- */
-function getInitials(name: string): string {
-  return name
-    .split(' ')
-    .map((part) => part.charAt(0))
-    .join('')
-    .toUpperCase()
-    .slice(0, 2)
-}
