@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createServiceRoleClient } from '@/lib/supabase/server'
 import { validateApiAuth } from '@/lib/auth-helpers'
 import { createHash, createDecipheriv } from 'crypto'
+import { normalizePhoneNumber } from '@/lib/phone-utils'
 
 // Extend timeout for large contact lists
 export const maxDuration = 300 // 5 minutes (requires Vercel Pro, otherwise max 60s)
@@ -48,11 +49,13 @@ export async function GET() {
 
     const hasToken = !!integration?.config?.encrypted_refresh_token
     const isConfigured = !!GOOGLE_CLIENT_ID && !!GOOGLE_CLIENT_SECRET
+    const connectedEmail = integration?.config?.connected_email || null
 
     return NextResponse.json({
       configured: isConfigured,
       connected: hasToken && integration?.is_active,
       last_synced: integration?.updated_at,
+      connected_email: connectedEmail,
     })
   } catch (error) {
     if (error instanceof Response) {
@@ -336,6 +339,49 @@ export async function POST(request: NextRequest) {
 }
 
 /**
+ * DELETE /api/contacts/sync/google
+ *
+ * Disconnect Google integration (removes stored token but keeps imported contacts)
+ */
+export async function DELETE() {
+  try {
+    const { profile } = await validateApiAuth()
+
+    if (!['main_admin', 'admin'].includes(profile.role)) {
+      return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+    }
+
+    const supabase = createServiceRoleClient()
+
+    // Delete the integration record (contacts are kept)
+    const { error } = await supabase
+      .from('workspace_integrations')
+      .delete()
+      .eq('workspace_id', profile.workspace_id)
+      .eq('provider', 'google_contacts')
+
+    if (error) {
+      console.error('Failed to disconnect Google:', error)
+      return NextResponse.json(
+        { error: 'Failed to disconnect Google' },
+        { status: 500 }
+      )
+    }
+
+    return NextResponse.json({ success: true })
+  } catch (error) {
+    if (error instanceof Response) {
+      return error
+    }
+    console.error('Disconnect Google error:', error)
+    return NextResponse.json(
+      { error: 'Internal server error' },
+      { status: 500 }
+    )
+  }
+}
+
+/**
  * Fetch all contacts from Google People API
  */
 async function fetchGoogleContacts(accessToken: string): Promise<GoogleContact[]> {
@@ -393,24 +439,6 @@ function decryptToken(encrypted: string): string | null {
     console.error('Token decryption failed:', error)
     return null
   }
-}
-
-/**
- * Normalize phone number to E.164 format
- */
-function normalizePhoneNumber(phone: string): string | null {
-  if (!phone) return null
-  let cleaned = phone.replace(/[^\d+]/g, '')
-  if (!cleaned.startsWith('+')) {
-    if (cleaned.length === 10) {
-      cleaned = '+1' + cleaned
-    } else if (cleaned.length === 11 && cleaned.startsWith('1')) {
-      cleaned = '+' + cleaned
-    } else {
-      cleaned = '+' + cleaned
-    }
-  }
-  return cleaned
 }
 
 /**

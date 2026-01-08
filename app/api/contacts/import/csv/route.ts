@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createHash } from 'crypto'
+import { normalizePhoneNumber } from '@/lib/phone-utils'
 
 /**
  * POST /api/contacts/import/csv
@@ -233,21 +234,6 @@ function findColumnIndex(headers: string[], possibleNames: string[]): number {
     if (idx !== -1) return idx
   }
   return -1
-}
-
-function normalizePhoneNumber(phone: string): string | null {
-  if (!phone) return null
-  let cleaned = phone.replace(/[^\d+]/g, '')
-  if (!cleaned.startsWith('+')) {
-    if (cleaned.length === 10) {
-      cleaned = '+1' + cleaned
-    } else if (cleaned.length === 11 && cleaned.startsWith('1')) {
-      cleaned = '+' + cleaned
-    } else {
-      cleaned = '+' + cleaned
-    }
-  }
-  return cleaned
 }
 
 function hashPhone(phone: string): string {

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createServiceRoleClient } from '@/lib/supabase/server'
-import { createHash, randomBytes, createCipheriv, createDecipheriv } from 'crypto'
+import { createHash, randomBytes, createCipheriv } from 'crypto'
+import { normalizePhoneNumber } from '@/lib/phone-utils'
 
 export const dynamic = 'force-dynamic'
 export const maxDuration = 300 // 5 minutes for large contact imports
@@ -106,6 +107,20 @@ export async function GET(request: NextRequest) {
 
     const tokens: GoogleTokenResponse = await tokenResponse.json()
 
+    // Fetch user's email for display purposes
+    let connectedEmail: string | null = null
+    try {
+      const userInfoResponse = await fetch('https://www.googleapis.com/oauth2/v2/userinfo', {
+        headers: { Authorization: `Bearer ${tokens.access_token}` },
+      })
+      if (userInfoResponse.ok) {
+        const userInfo = await userInfoResponse.json()
+        connectedEmail = userInfo.email || null
+      }
+    } catch (e) {
+      console.error('Failed to fetch user info:', e)
+    }
+
     // Fetch contacts from Google People API
     const contacts = await fetchGoogleContacts(tokens.access_token)
 
@@ -199,7 +214,8 @@ export async function GET(request: NextRequest) {
       await storeRefreshToken(
         supabase,
         stateData.workspace_id,
-        tokens.refresh_token
+        tokens.refresh_token,
+        connectedEmail
       )
     }
 
@@ -282,7 +298,8 @@ async function findExistingContact(
 async function storeRefreshToken(
   supabase: ReturnType<typeof createServiceRoleClient>,
   workspaceId: string,
-  refreshToken: string
+  refreshToken: string,
+  connectedEmail: string | null
 ): Promise<void> {
   if (!ENCRYPTION_KEY) return
 
@@ -293,7 +310,10 @@ async function storeRefreshToken(
     .upsert({
       workspace_id: workspaceId,
       provider: 'google_contacts',
-      config: { encrypted_refresh_token: encrypted },
+      config: {
+        encrypted_refresh_token: encrypted,
+        connected_email: connectedEmail,
+      },
       is_active: true,
     }, {
       onConflict: 'workspace_id,provider',
@@ -315,24 +335,6 @@ function encryptToken(token: string): string {
   const authTag = cipher.getAuthTag()
 
   return `${iv.toString('hex')}:${authTag.toString('hex')}:${encrypted}`
-}
-
-/**
- * Normalize phone number to E.164 format
- */
-function normalizePhoneNumber(phone: string): string | null {
-  if (!phone) return null
-  let cleaned = phone.replace(/[^\d+]/g, '')
-  if (!cleaned.startsWith('+')) {
-    if (cleaned.length === 10) {
-      cleaned = '+1' + cleaned
-    } else if (cleaned.length === 11 && cleaned.startsWith('1')) {
-      cleaned = '+' + cleaned
-    } else {
-      cleaned = '+' + cleaned
-    }
-  }
-  return cleaned
 }
 
 /**

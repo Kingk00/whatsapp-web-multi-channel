@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createClient, createServiceRoleClient } from '@/lib/supabase/server'
 import { createHash } from 'crypto'
 import { pushNewContactToWhapi } from '@/lib/whapi-contacts-sync'
+import { normalizePhoneNumber } from '@/lib/phone-utils'
 
 /**
  * GET /api/contacts
@@ -237,27 +238,6 @@ export async function POST(request: NextRequest) {
       { status: 500 }
     )
   }
-}
-
-/**
- * Normalize phone number to E.164 format
- */
-function normalizePhoneNumber(phone: string): string | null {
-  if (!phone) return null
-  // Remove all non-digit characters except leading +
-  let cleaned = phone.replace(/[^\d+]/g, '')
-  // If no leading +, try to add country code
-  if (!cleaned.startsWith('+')) {
-    // Assume US if 10 digits
-    if (cleaned.length === 10) {
-      cleaned = '+1' + cleaned
-    } else if (cleaned.length === 11 && cleaned.startsWith('1')) {
-      cleaned = '+' + cleaned
-    } else {
-      cleaned = '+' + cleaned
-    }
-  }
-  return cleaned
 }
 
 /**

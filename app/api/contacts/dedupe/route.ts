@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient, createServiceRoleClient } from '@/lib/supabase/server'
+import { normalizePhoneNumber } from '@/lib/phone-utils'
 
 export const maxDuration = 300 // 5 minutes for large contact lists
 
@@ -43,7 +44,7 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({
       duplicate_groups: duplicates.length,
       total_duplicates: duplicates.reduce((sum, g) => sum + g.duplicates.length, 0),
-      preview: duplicates.slice(0, 10), // Show first 10 groups
+      preview: duplicates, // Show all groups
     })
   } catch (error) {
     console.error('Dedupe preview error:', error)
@@ -170,7 +171,8 @@ async function findDuplicates(
     if (!phones || phones.length === 0) continue
 
     for (const phone of phones) {
-      const normalized = phone.normalized || normalizePhone(phone.number)
+      // Use pre-normalized value if available, otherwise normalize using libphonenumber-js
+      const normalized = phone.normalized || normalizePhoneNumber(phone.number)
       if (!normalized) continue
 
       const existing = phoneMap.get(normalized) || []
@@ -216,19 +218,4 @@ async function findDuplicates(
   }
 
   return duplicateGroups
-}
-
-function normalizePhone(phone: string): string | null {
-  if (!phone) return null
-  let cleaned = phone.replace(/[^\d+]/g, '')
-  if (!cleaned.startsWith('+')) {
-    if (cleaned.length === 10) {
-      cleaned = '+1' + cleaned
-    } else if (cleaned.length === 11 && cleaned.startsWith('1')) {
-      cleaned = '+' + cleaned
-    } else {
-      cleaned = '+' + cleaned
-    }
-  }
-  return cleaned
 }
