@@ -620,7 +620,7 @@ function ChatListItem({
             <div className="flex items-center gap-1.5 min-w-0">
               <h3 className={cn(
                 'truncate',
-                chat.contact ? 'text-base font-semibold' : 'text-[15px] font-medium',
+                chat.contact ? 'text-[17px] font-semibold' : 'text-[15px] font-medium',
                 chat.unread_count > 0 ? 'text-foreground' : 'text-foreground/90'
               )}>
                 {displayName}
