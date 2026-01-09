@@ -94,6 +94,15 @@ export async function processWebhookEvent(
       // method === 'post' or any other method falls through to processMessageEvent
     }
 
+    // IMPORTANT: Check for "action" type messages which Whapi uses for edits/deletes/revokes
+    // These come as type: "messages", event: "post" but with message.type = "action"
+    // Format: { messages: [{ type: "action", action: { type: "edit"|"revoke", target: "msg_id", edited_content: {...} } }] }
+    const messages = event.messages || []
+    if (messages.length > 0 && messages[0]?.type === 'action') {
+      console.log('[Webhook Processor] Detected action message, processing action events')
+      return await processActionMessages(supabase, channel, event)
+    }
+
     switch (eventType) {
       case 'message':
       case 'messages':
@@ -571,6 +580,167 @@ async function processDeleteEvent(
   return {
     success: failCount === 0,
     action: 'process_deletes',
+    details: {
+      total: results.length,
+      success: successCount,
+      failed: failCount,
+      results: results,
+    },
+  }
+}
+
+// ============================================================================
+// Action Message Processing (Whapi's format for edits/deletes)
+// ============================================================================
+
+/**
+ * Process "action" type messages from Whapi
+ * Whapi sends edits and deletes as type: "action" messages with:
+ * - action.type: "edit" | "revoke" | "delete"
+ * - action.target: the original message ID being modified
+ * - action.edited_content: { body: "new text" } for edits
+ *
+ * Example payload:
+ * {
+ *   "messages": [{
+ *     "id": "new_action_msg_id",
+ *     "type": "action",
+ *     "action": {
+ *       "target": "original_msg_id",
+ *       "type": "edit",
+ *       "edited_type": "text",
+ *       "edited_content": { "body": "new text" }
+ *     }
+ *   }]
+ * }
+ */
+async function processActionMessages(
+  supabase: SupabaseClient,
+  channel: ChannelInfo,
+  event: WebhookEvent
+): Promise<ProcessingResult> {
+  const messages = event.messages || []
+
+  console.log('[Webhook Processor] Processing action messages, count:', messages.length)
+
+  const results: ProcessingResult[] = []
+
+  for (const actionMsg of messages) {
+    if (actionMsg.type !== 'action' || !actionMsg.action) {
+      console.log('[Webhook Processor] Skipping non-action message')
+      continue
+    }
+
+    const action = actionMsg.action
+    const targetMessageId = action.target
+    const actionType = action.type
+
+    console.log('[Webhook Processor] Action type:', actionType, 'target:', targetMessageId)
+
+    if (!targetMessageId) {
+      results.push({
+        success: false,
+        action: 'skip',
+        error: 'Missing target message ID in action',
+      })
+      continue
+    }
+
+    if (actionType === 'edit') {
+      // Handle edit action
+      const newText = action.edited_content?.body || action.edited_content?.caption
+
+      console.log('[Webhook Processor] Processing edit action - target:', targetMessageId, 'newText:', newText?.substring(0, 50))
+
+      if (!newText) {
+        results.push({
+          success: false,
+          action: 'skip',
+          error: 'Missing edited content in edit action',
+        })
+        continue
+      }
+
+      const { data, error } = await supabase
+        .from('messages')
+        .update({
+          text: newText,
+          edited_at: new Date().toISOString(),
+        })
+        .eq('channel_id', channel.id)
+        .eq('wa_message_id', targetMessageId)
+        .select()
+
+      if (error) {
+        console.error('[Webhook Processor] Edit action error:', error)
+        results.push({
+          success: false,
+          action: 'error',
+          error: error.message,
+        })
+        continue
+      }
+
+      console.log('[Webhook Processor] Edit action successful, updated:', data?.length, 'records')
+
+      results.push({
+        success: true,
+        action: 'message_edited_via_action',
+        details: {
+          wa_message_id: targetMessageId,
+          updated: data?.length > 0,
+        },
+      })
+    } else if (actionType === 'revoke' || actionType === 'delete') {
+      // Handle delete/revoke action
+      console.log('[Webhook Processor] Processing delete/revoke action - target:', targetMessageId)
+
+      const { data, error } = await supabase
+        .from('messages')
+        .update({
+          deleted_at: new Date().toISOString(),
+        })
+        .eq('channel_id', channel.id)
+        .eq('wa_message_id', targetMessageId)
+        .is('deleted_at', null)
+        .select()
+
+      if (error) {
+        console.error('[Webhook Processor] Delete action error:', error)
+        results.push({
+          success: false,
+          action: 'error',
+          error: error.message,
+        })
+        continue
+      }
+
+      console.log('[Webhook Processor] Delete action successful, updated:', data?.length, 'records')
+
+      results.push({
+        success: true,
+        action: 'message_deleted_via_action',
+        details: {
+          wa_message_id: targetMessageId,
+          updated: data?.length > 0,
+        },
+      })
+    } else {
+      console.log('[Webhook Processor] Unknown action type:', actionType)
+      results.push({
+        success: true,
+        action: 'ignored',
+        details: { reason: `Unknown action type: ${actionType}` },
+      })
+    }
+  }
+
+  const successCount = results.filter((r) => r.success).length
+  const failCount = results.length - successCount
+
+  return {
+    success: failCount === 0,
+    action: 'process_actions',
     details: {
       total: results.length,
       success: successCount,

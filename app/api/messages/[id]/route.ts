@@ -174,16 +174,23 @@ export async function PATCH(
       console.log('[Message Edit] Full response data:', JSON.stringify(responseData))
 
       // Check if this was actually an edit or if Whapi sent a new message
-      // A successful edit should NOT return a new message ID
+      // Whapi returns an "action" type message when editing succeeds - this is CORRECT behavior
+      // The action message has a different ID but indicates the edit was applied
       const responseMessage = responseData.message as Record<string, unknown> | undefined
       const responseMessageId = responseMessage?.id || responseData.id
       const wasEdited = responseData.edited === true || responseMessage?.edited === true
+      const messageType = responseMessage?.type || responseData.type
+      const isActionMessage = messageType === 'action'
+      const hasEditAction = (responseMessage?.action as Record<string, unknown>)?.type === 'edit'
 
-      console.log('[Message Edit] Response analysis - messageId:', responseMessageId, 'wasEdited:', wasEdited, 'sent:', responseData.sent)
+      console.log('[Message Edit] Response analysis - messageId:', responseMessageId, 'wasEdited:', wasEdited, 'sent:', responseData.sent, 'type:', messageType, 'isAction:', isActionMessage)
 
-      // If 'sent' is true and there's a new message ID different from original, the edit failed
-      // and Whapi created a new message instead
-      if (responseData.sent && responseMessageId && responseMessageId !== message.wa_message_id && !wasEdited) {
+      // If Whapi returns an action message with type "edit", the edit was successful
+      if (isActionMessage || hasEditAction || wasEdited) {
+        console.log('[Message Edit] Edit successful via action message')
+        // Continue to update local database
+      } else if (responseData.sent && responseMessageId && responseMessageId !== message.wa_message_id) {
+        // Only fail if it's a regular text message (not action) with a different ID
         console.error('[Message Edit] Whapi created a new message instead of editing! New ID:', responseMessageId, 'Original ID:', message.wa_message_id)
         return NextResponse.json(
           { error: 'Failed to edit message. A new message was sent instead. The original message may be too old to edit (15 min limit).' },
