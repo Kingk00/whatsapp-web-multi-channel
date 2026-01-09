@@ -218,6 +218,14 @@ async function processSingleMessage(
     const fromMe = messageData.from_me ?? messageData.fromMe ?? false
     const direction = fromMe ? 'outbound' : 'inbound'
 
+    // Log outbound messages for debugging ID matching
+    if (fromMe) {
+      console.log('[Webhook Processor] Received OUTBOUND message webhook:')
+      console.log('[Webhook Processor] Webhook wa_message_id:', waMessageId)
+      console.log('[Webhook Processor] Chat ID:', waChatId)
+      console.log('[Webhook Processor] Message status:', messageData.status)
+    }
+
     // Try to extract and update channel phone number if not set
     // For inbound messages, 'to' contains the channel's WhatsApp number
     // For outbound messages, 'from' contains the channel's WhatsApp number

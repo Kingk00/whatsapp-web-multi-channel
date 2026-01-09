@@ -277,7 +277,9 @@ export async function POST(
         const isSent = whapiResult.sent === true || whapiResponse.ok
 
         if (isSent && waMessageId) {
-          console.log('[Send Message] Message sent successfully, wa_message_id:', waMessageId)
+          console.log('[Send Message] Message sent successfully!')
+          console.log('[Send Message] API Response wa_message_id:', waMessageId)
+          console.log('[Send Message] Message DB ID:', message?.id)
           finalStatus = 'sent'
           finalWaMessageId = waMessageId
 
@@ -292,6 +294,7 @@ export async function POST(
               .from('messages')
               .update({ wa_message_id: waMessageId, status: 'sent' })
               .eq('id', message.id)
+            console.log('[Send Message] Updated message', message.id, 'with wa_message_id:', waMessageId)
           }
         } else {
           console.error('[Send Message] Whapi send failed:', whapiResult)
