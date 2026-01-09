@@ -138,15 +138,13 @@ export async function PATCH(
         )
       }
 
-      // Whapi docs show phone-number-only format for edit: "919984351847"
-      // Extract phone number from wa_chat_id (format: "447930816581@s.whatsapp.net" or group ID)
-      const isGroup = fullWaChatId.endsWith('@g.us')
-      const waChatId = isGroup
-        ? fullWaChatId  // Keep full group ID for groups
-        : fullWaChatId.split('@')[0]  // Extract phone number only for individuals
+      // Use SAME format as sending messages (which works)
+      // Send uses: to: chat.wa_chat_id (full format "447930816581@s.whatsapp.net")
+      const waChatId = fullWaChatId
 
-      console.log('[Message Edit] Chat ID:', waChatId, '(from:', fullWaChatId, ')')
+      console.log('[Message Edit] Using same format as send - to:', waChatId)
       console.log('[Message Edit] Message ID to edit:', message.wa_message_id)
+      console.log('[Message Edit] Message status:', message.status)
 
       // Whapi uses POST /messages/text with "edit" parameter to edit messages
       // (PUT /messages/{id} is for marking as read, NOT editing)
