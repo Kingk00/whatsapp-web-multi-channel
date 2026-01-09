@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 
 // Predefined color options for labels
-export const LABEL_COLORS = [
+const LABEL_COLORS = [
   { name: 'Red', value: '#ef4444' },
   { name: 'Orange', value: '#f97316' },
   { name: 'Yellow', value: '#eab308' },
