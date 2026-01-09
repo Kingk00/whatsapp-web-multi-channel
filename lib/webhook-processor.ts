@@ -22,9 +22,11 @@ import { getOrCreateChat, updateChatLastMessage } from '@/lib/chat-helpers'
 // ============================================================================
 
 export interface WebhookEvent {
-  event?: string | { type: string; event?: string }
+  event?: string | { type: string; event?: string; method?: string }
   type?: string
+  method?: string
   data?: any
+  messages?: any[]
   // Whapi event structures vary, so we keep this flexible
   [key: string]: any
 }
@@ -59,19 +61,39 @@ export async function processWebhookEvent(
 ): Promise<ProcessingResult> {
   const supabase = createServiceRoleClient()
 
-  // Handle Whapi format where event can be an object like {"type": "messages", "event": "post"}
+  // Handle Whapi format where event can be an object like {"type": "messages", "method": "post"}
+  // or {"type": "messages", "event": "post"}
   let eventType: string = 'unknown'
+  let eventMethod: string | undefined = undefined
+
   if (typeof event.event === 'object' && event.event?.type) {
     eventType = event.event.type
+    eventMethod = event.event.method || event.event.event
   } else if (typeof event.event === 'string') {
     eventType = event.event
   } else if (event.type) {
     eventType = event.type
+    eventMethod = event.method
   }
 
-  console.log('[Webhook Processor] Event type:', eventType, 'Full event keys:', Object.keys(event))
+  console.log('[Webhook Processor] Event type:', eventType, 'method:', eventMethod, 'Full event keys:', Object.keys(event))
 
   try {
+    // Handle Whapi's event format where type=messages and method=patch/delete
+    // indicates edit/delete operations rather than new messages
+    if ((eventType === 'message' || eventType === 'messages') && eventMethod) {
+      const method = eventMethod.toLowerCase()
+      if (method === 'patch' || method === 'put') {
+        console.log('[Webhook Processor] Detected message edit via method:', method)
+        return await processEditEvent(supabase, channel, event)
+      }
+      if (method === 'delete') {
+        console.log('[Webhook Processor] Detected message delete via method:', method)
+        return await processDeleteEvent(supabase, channel, event)
+      }
+      // method === 'post' or any other method falls through to processMessageEvent
+    }
+
     switch (eventType) {
       case 'message':
       case 'messages':
@@ -80,6 +102,7 @@ export async function processWebhookEvent(
       case 'message.status':
       case 'ack':
       case 'acks':
+      case 'statuses':
         return await processStatusEvent(supabase, channel, event)
 
       case 'message.edit':
@@ -102,7 +125,7 @@ export async function processWebhookEvent(
         return {
           success: true,
           action: 'ignored',
-          details: { reason: `Unknown event type: ${eventType}` },
+          details: { reason: `Unknown event type: ${eventType}, method: ${eventMethod}` },
         }
     }
   } catch (error) {
@@ -396,49 +419,79 @@ async function processStatusEvent(
 /**
  * Process message edit events
  * WhatsApp allows editing within 15 minutes of sending
+ * Whapi sends edits via type=messages, method=patch with message data in 'messages' array
  */
 async function processEditEvent(
   supabase: SupabaseClient,
   channel: ChannelInfo,
   event: WebhookEvent
 ): Promise<ProcessingResult> {
-  const editData = event.data || event
-  const waMessageId = editData.id || editData.message_id || editData.messageId
-  const newText = editData.body || editData.text || editData.newBody
+  // Handle both single message and batch formats from Whapi
+  // Whapi sends message data in 'messages' array for patch/delete events
+  const messages = event.messages || (event.data ? [event.data] : [event])
 
-  if (!waMessageId) {
-    return {
-      success: false,
-      action: 'skip',
-      error: 'Missing message ID in edit event',
+  console.log('[Webhook Processor] Processing edit event, messages count:', messages.length)
+
+  const results: ProcessingResult[] = []
+
+  for (const editData of messages) {
+    const waMessageId = editData.id || editData.message_id || editData.messageId
+    const newText = editData.body || editData.text?.body || editData.text || editData.newBody
+
+    console.log('[Webhook Processor] Edit data - waMessageId:', waMessageId, 'newText:', newText?.substring(0, 50))
+
+    if (!waMessageId) {
+      results.push({
+        success: false,
+        action: 'skip',
+        error: 'Missing message ID in edit event',
+      })
+      continue
     }
-  }
 
-  const { data, error } = await supabase
-    .from('messages')
-    .update({
-      text: newText,
-      edited_at: new Date().toISOString(),
+    const { data, error } = await supabase
+      .from('messages')
+      .update({
+        text: newText,
+        edited_at: new Date().toISOString(),
+      })
+      .eq('channel_id', channel.id)
+      .eq('wa_message_id', waMessageId)
+      .select()
+
+    if (error) {
+      console.error('Edit update error:', error)
+      results.push({
+        success: false,
+        action: 'error',
+        error: error.message,
+      })
+      continue
+    }
+
+    console.log('[Webhook Processor] Edit successful, updated:', data?.length, 'records')
+
+    results.push({
+      success: true,
+      action: 'message_edited',
+      details: {
+        wa_message_id: waMessageId,
+        updated: data?.length > 0,
+      },
     })
-    .eq('channel_id', channel.id)
-    .eq('wa_message_id', waMessageId)
-    .select()
-
-  if (error) {
-    console.error('Edit update error:', error)
-    return {
-      success: false,
-      action: 'error',
-      error: error.message,
-    }
   }
+
+  const successCount = results.filter((r) => r.success).length
+  const failCount = results.length - successCount
 
   return {
-    success: true,
-    action: 'message_edited',
+    success: failCount === 0,
+    action: 'process_edits',
     details: {
-      wa_message_id: waMessageId,
-      updated: data?.length > 0,
+      total: results.length,
+      success: successCount,
+      failed: failCount,
+      results: results,
     },
   }
 }
@@ -450,49 +503,79 @@ async function processEditEvent(
 /**
  * Process message deletion events
  * Sets deleted_at timestamp instead of actually deleting
+ * Whapi sends deletes via type=messages, method=delete with message data in 'messages' array
  */
 async function processDeleteEvent(
   supabase: SupabaseClient,
   channel: ChannelInfo,
   event: WebhookEvent
 ): Promise<ProcessingResult> {
-  const deleteData = event.data || event
-  const waMessageId = deleteData.id || deleteData.message_id || deleteData.messageId
+  // Handle both single message and batch formats from Whapi
+  // Whapi sends message data in 'messages' array for patch/delete events
+  const messages = event.messages || (event.data ? [event.data] : [event])
 
-  if (!waMessageId) {
-    return {
-      success: false,
-      action: 'skip',
-      error: 'Missing message ID in delete event',
+  console.log('[Webhook Processor] Processing delete event, messages count:', messages.length)
+
+  const results: ProcessingResult[] = []
+
+  for (const deleteData of messages) {
+    const waMessageId = deleteData.id || deleteData.message_id || deleteData.messageId
+
+    console.log('[Webhook Processor] Delete data - waMessageId:', waMessageId)
+
+    if (!waMessageId) {
+      results.push({
+        success: false,
+        action: 'skip',
+        error: 'Missing message ID in delete event',
+      })
+      continue
     }
-  }
 
-  // Only set deleted_at if not already set (idempotency)
-  const { data, error } = await supabase
-    .from('messages')
-    .update({
-      deleted_at: new Date().toISOString(),
+    // Only set deleted_at if not already set (idempotency)
+    const { data, error } = await supabase
+      .from('messages')
+      .update({
+        deleted_at: new Date().toISOString(),
+      })
+      .eq('channel_id', channel.id)
+      .eq('wa_message_id', waMessageId)
+      .is('deleted_at', null)
+      .select()
+
+    if (error) {
+      console.error('Delete update error:', error)
+      results.push({
+        success: false,
+        action: 'error',
+        error: error.message,
+      })
+      continue
+    }
+
+    console.log('[Webhook Processor] Delete successful, updated:', data?.length, 'records')
+
+    results.push({
+      success: true,
+      action: 'message_deleted',
+      details: {
+        wa_message_id: waMessageId,
+        updated: data?.length > 0,
+      },
     })
-    .eq('channel_id', channel.id)
-    .eq('wa_message_id', waMessageId)
-    .is('deleted_at', null)
-    .select()
-
-  if (error) {
-    console.error('Delete update error:', error)
-    return {
-      success: false,
-      action: 'error',
-      error: error.message,
-    }
   }
+
+  const successCount = results.filter((r) => r.success).length
+  const failCount = results.length - successCount
 
   return {
-    success: true,
-    action: 'message_deleted',
+    success: failCount === 0,
+    action: 'process_deletes',
     details: {
-      wa_message_id: waMessageId,
-      updated: data?.length > 0,
+      total: results.length,
+      success: successCount,
+      failed: failCount,
+      results: results,
     },
   }
 }
