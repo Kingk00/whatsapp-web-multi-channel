@@ -134,7 +134,7 @@ export function StatusBadge({
 interface ChannelBadgeProps {
   name: string
   color?: string | null
-  size?: 'sm' | 'md'
+  size?: 'sm' | 'md' | 'lg'
   className?: string
 }
 
@@ -142,9 +142,10 @@ export function ChannelBadge({ name, color, size = 'sm', className }: ChannelBad
   return (
     <span
       className={cn(
-        'inline-flex items-center gap-1 rounded-full font-medium',
+        'inline-flex items-center gap-1.5 rounded-full font-medium',
         size === 'sm' && 'text-[10px] px-1.5 py-0.5',
-        size === 'md' && 'text-xs px-2 py-0.5',
+        size === 'md' && 'text-xs px-2 py-1',
+        size === 'lg' && 'text-sm px-2.5 py-1',
         className
       )}
       style={{
@@ -153,7 +154,12 @@ export function ChannelBadge({ name, color, size = 'sm', className }: ChannelBad
       }}
     >
       <span
-        className="w-1.5 h-1.5 rounded-full"
+        className={cn(
+          'rounded-full',
+          size === 'sm' && 'w-1.5 h-1.5',
+          size === 'md' && 'w-2 h-2',
+          size === 'lg' && 'w-2.5 h-2.5'
+        )}
         style={{ backgroundColor: color || 'currentColor' }}
       />
       {name}

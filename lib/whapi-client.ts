@@ -130,6 +130,16 @@ export class WhapiClient {
   }
 
   /**
+   * Get profile photo URL for a contact or chat
+   * @param contactId - Phone number or chat ID (e.g., "1234567890" or "1234567890@s.whatsapp.net")
+   */
+  async getProfilePhoto(contactId: string): Promise<{ avatar?: string; icon?: string }> {
+    // Normalize contact ID - remove @s.whatsapp.net suffix if present
+    const normalizedId = contactId.replace(/@s\.whatsapp\.net$/, '').replace(/@g\.us$/, '')
+    return this.request<{ avatar?: string; icon?: string }>(`/contacts/${normalizedId}/profile`)
+  }
+
+  /**
    * Send text message
    */
   async sendText(options: SendTextOptions): Promise<WhapiMessageResponse> {

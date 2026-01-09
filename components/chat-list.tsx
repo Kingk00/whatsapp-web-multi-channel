@@ -24,7 +24,7 @@ import { ChatListItemMenu } from '@/components/chat-list-item-menu'
 import { ActionSheet } from '@/components/ui/bottom-sheet'
 import { useToast } from '@/components/ui/toast'
 import { getDisplayName } from '@/lib/chat-helpers'
-import { Avatar } from '@/components/ui/avatar'
+import { ChatAvatar } from '@/components/chat-avatar'
 import { Badge, ChannelBadge } from '@/components/ui/badge'
 
 interface Chat {
@@ -556,9 +556,9 @@ function ChatListItem({
         <button onClick={handleClick} className="flex flex-1 items-center gap-3 min-w-0">
         {/* Avatar with channel indicator */}
         <div className="relative flex-shrink-0">
-          <Avatar
+          <ChatAvatar
+            chatId={chat.id}
             src={chat.profile_photo_url}
-            alt={displayName}
             fallback={displayName}
             size="lg"
           />
@@ -633,6 +633,7 @@ function ChatListItem({
             <ChannelBadge
               name={chat.channel.name}
               color={chat.channel.color || '#25D366'}
+              size="md"
               className="mt-1.5"
             />
           )}
