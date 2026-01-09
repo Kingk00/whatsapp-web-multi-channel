@@ -57,6 +57,7 @@ export async function PATCH(
         direction,
         message_type,
         text,
+        status,
         deleted_at,
         channels!inner (
           id,
@@ -72,6 +73,15 @@ export async function PATCH(
     if (messageError || !message) {
       return NextResponse.json({ error: 'Message not found' }, { status: 404 })
     }
+
+    // Log message details for debugging
+    console.log('[Message Edit] Message details:', {
+      id: message.id,
+      wa_message_id: message.wa_message_id,
+      status: message.status,
+      direction: message.direction,
+      message_type: message.message_type,
+    })
 
     // Validate edit permissions
     if (message.direction !== 'outbound') {
@@ -128,14 +138,15 @@ export async function PATCH(
         )
       }
 
-      // Whapi documentation shows phone number only for edit (e.g., "919984351847")
-      // Extract just the phone number from the full chat ID
+      // Whapi docs show phone-number-only format for edit: "919984351847"
+      // Extract phone number from wa_chat_id (format: "447930816581@s.whatsapp.net" or group ID)
       const isGroup = fullWaChatId.endsWith('@g.us')
       const waChatId = isGroup
         ? fullWaChatId  // Keep full group ID for groups
-        : fullWaChatId.replace(/@(s\.whatsapp\.net|c\.us)$/, '')  // Strip suffix for individuals
+        : fullWaChatId.split('@')[0]  // Extract phone number only for individuals
 
-      console.log('[Message Edit] Editing message:', message.wa_message_id, 'to:', waChatId, '(from:', fullWaChatId, ')')
+      console.log('[Message Edit] Chat ID:', waChatId, '(from:', fullWaChatId, ')')
+      console.log('[Message Edit] Message ID to edit:', message.wa_message_id)
 
       // Whapi uses POST /messages/text with "edit" parameter to edit messages
       // (PUT /messages/{id} is for marking as read, NOT editing)
