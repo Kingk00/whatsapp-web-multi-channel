@@ -42,7 +42,7 @@ export function ChatListItemMenu({
   const [showMuteSubmenu, setShowMuteSubmenu] = useState(false)
   const [showLabelsSubmenu, setShowLabelsSubmenu] = useState(false)
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
-  const [menuPosition, setMenuPosition] = useState({ top: 0, left: 0 })
+  const [menuPosition, setMenuPosition] = useState({ top: 0, left: 0, openAbove: true })
   const buttonRef = useRef<HTMLButtonElement>(null)
   const menuRef = useRef<HTMLDivElement>(null)
 
@@ -52,15 +52,37 @@ export function ChatListItemMenu({
     onOpenChange?.(value)
   }
 
-  // Calculate menu position when opening
+  // Calculate menu position when opening - ensures menu stays within viewport
   const openMenu = () => {
     if (buttonRef.current) {
       const rect = buttonRef.current.getBoundingClientRect()
-      // Position menu above the button, aligned to the right
-      setMenuPosition({
-        top: rect.top - 8, // 8px gap above button
-        left: rect.right - 208, // 208px is menu width (w-52 = 13rem = 208px)
-      })
+      const menuWidth = 208 // w-52 = 13rem = 208px
+      const menuHeight = 280 // Approximate menu height
+      const padding = 8 // Padding from edges
+
+      // Check if menu fits above
+      const spaceAbove = rect.top
+      const spaceBelow = window.innerHeight - rect.bottom
+      const openAbove = spaceAbove > menuHeight + padding || spaceAbove > spaceBelow
+
+      // Calculate vertical position
+      let top: number
+      if (openAbove) {
+        top = rect.top - padding // Will use translateY(-100%) to go above
+      } else {
+        top = rect.bottom + padding // Open below
+      }
+
+      // Calculate horizontal position - ensure it stays within viewport
+      let left = rect.right - menuWidth
+      if (left < padding) {
+        left = padding // Don't go off left edge
+      }
+      if (left + menuWidth > window.innerWidth - padding) {
+        left = window.innerWidth - menuWidth - padding // Don't go off right edge
+      }
+
+      setMenuPosition({ top, left, openAbove })
     }
     setIsOpen(true)
   }
@@ -143,7 +165,7 @@ export function ChatListItemMenu({
         top: menuPosition.top,
         left: menuPosition.left,
         zIndex: 99999,
-        transform: 'translateY(-100%)',
+        transform: menuPosition.openAbove ? 'translateY(-100%)' : 'translateY(0)',
       }}
     >
           {/* Pin / Unpin */}
