@@ -6,8 +6,15 @@
  */
 
 import { createServiceRoleClient } from '@/lib/supabase/server'
-import { decrypt, normalizePhoneE164, hashPhoneE164 } from '@/lib/encryption'
+import { decrypt } from '@/lib/encryption'
 import { WhapiClient, WhapiContact } from '@/lib/whapi-client'
+import { normalizePhoneNumber } from '@/lib/phone-utils'
+import { createHash } from 'crypto'
+
+// Helper to hash phone number consistently
+function hashPhone(phone: string): string {
+  return createHash('sha256').update(phone).digest('hex')
+}
 
 // Types
 export interface WorkspaceSyncSettings {
@@ -123,7 +130,7 @@ export async function pushNewContactToWhapi(
   }
 
   // Normalize phone number
-  const normalizedPhone = normalizePhoneE164(phoneNumber)
+  const normalizedPhone = normalizePhoneNumber(phoneNumber)
   if (!normalizedPhone) {
     console.log('Invalid phone number format, skipping Whapi push')
     return null
@@ -328,8 +335,8 @@ export async function syncContactsFromWhapi(
       // B. Try to find by phone number match
       // The Whapi contact ID format is typically phone@s.whatsapp.net
       const phoneFromId = whapiContact.id.split('@')[0]
-      const normalizedPhone = normalizePhoneE164(phoneFromId)
-      const phoneHash = normalizedPhone ? hashPhoneE164(normalizedPhone) : null
+      const normalizedPhone = normalizePhoneNumber(phoneFromId)
+      const phoneHash = normalizedPhone ? hashPhone(normalizedPhone) : null
 
       if (phoneHash && contactByPhoneHash.has(phoneHash)) {
         const existingContactId = contactByPhoneHash.get(phoneHash)
@@ -371,7 +378,7 @@ export async function syncContactsFromWhapi(
           result.errors.push(`Failed to create contact ${contactName}: ${insertError.message}`)
         } else if (newContact) {
           // Create phone lookup entry
-          const phoneHashForLookup = hashPhoneE164(normalizedPhone)
+          const phoneHashForLookup = hashPhone(normalizedPhone)
           if (phoneHashForLookup) {
             await supabase.from('contact_phone_lookup').insert({
               contact_id: newContact.id,
