@@ -331,23 +331,7 @@ export function ChatList({
 
   return (
     <div className="divide-y divide-border">
-      {/* Active chats */}
-      {chats.map((chat) => (
-        <ChatListItem
-          key={chat.id}
-          chat={chat}
-          isSelected={selectedChatId === chat.id}
-          showChannelBadge={!channelId}
-          onSelect={() => handleSelectChat(chat.id, chat.channel_id)}
-          onArchive={() => archiveMutation.mutate({ chatId: chat.id, archive: !chat.is_archived })}
-          onMute={(duration) => muteMutation.mutate({ chatId: chat.id, duration })}
-          onUnmute={() => muteMutation.mutate({ chatId: chat.id })}
-          onPin={() => pinMutation.mutate({ chatId: chat.id, pin: !chat.is_pinned })}
-          onDelete={() => deleteMutation.mutate(chat.id)}
-        />
-      ))}
-
-      {/* Archived section */}
+      {/* Archived section - shown above active chats */}
       {(filteredArchivedChats.length > 0 || archivedChats.length > 0) && (
         <>
           <button
@@ -390,6 +374,22 @@ export function ChatList({
           )}
         </>
       )}
+
+      {/* Active chats */}
+      {chats.map((chat) => (
+        <ChatListItem
+          key={chat.id}
+          chat={chat}
+          isSelected={selectedChatId === chat.id}
+          showChannelBadge={!channelId}
+          onSelect={() => handleSelectChat(chat.id, chat.channel_id)}
+          onArchive={() => archiveMutation.mutate({ chatId: chat.id, archive: !chat.is_archived })}
+          onMute={(duration) => muteMutation.mutate({ chatId: chat.id, duration })}
+          onUnmute={() => muteMutation.mutate({ chatId: chat.id })}
+          onPin={() => pinMutation.mutate({ chatId: chat.id, pin: !chat.is_pinned })}
+          onDelete={() => deleteMutation.mutate(chat.id)}
+        />
+      ))}
     </div>
   )
 }
