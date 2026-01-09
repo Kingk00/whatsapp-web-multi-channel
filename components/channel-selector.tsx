@@ -5,7 +5,7 @@
  *
  * Dropdown to select which channel to view in the chat list.
  * Options include individual channels and "Unified Inbox" (all channels).
- * Shows unread message count per channel instead of status indicator.
+ * Shows number of chats with unread messages per channel (not total message count).
  */
 
 import { useState, useRef, useEffect } from 'react'
@@ -23,9 +23,9 @@ interface Channel {
   color: string | null
 }
 
-interface ChannelUnreadCount {
+interface ChannelUnreadChats {
   channel_id: string
-  unread_count: number
+  unread_chats: number
 }
 
 export function ChannelSelector() {
@@ -49,43 +49,43 @@ export function ChannelSelector() {
     },
   })
 
-  // Fetch unread counts per channel
-  const { data: unreadCounts = [] } = useQuery({
-    queryKey: ['channel-unread-counts'],
+  // Fetch number of chats with unread messages per channel
+  const { data: unreadChatCounts = [] } = useQuery({
+    queryKey: ['channel-unread-chats'],
     queryFn: async () => {
-      // Get sum of unread_count grouped by channel_id
+      // Get chats with unread messages
       const { data, error } = await supabase
         .from('chats')
-        .select('channel_id, unread_count')
+        .select('channel_id')
         .gt('unread_count', 0)
         .eq('is_archived', false)
 
       if (error) throw error
 
-      // Aggregate unread counts by channel
-      const countsByChannel: Record<string, number> = {}
+      // Count number of chats with unreads per channel
+      const chatsByChannel: Record<string, number> = {}
       for (const chat of data || []) {
         if (chat.channel_id) {
-          countsByChannel[chat.channel_id] = (countsByChannel[chat.channel_id] || 0) + chat.unread_count
+          chatsByChannel[chat.channel_id] = (chatsByChannel[chat.channel_id] || 0) + 1
         }
       }
 
-      return Object.entries(countsByChannel).map(([channel_id, unread_count]) => ({
+      return Object.entries(chatsByChannel).map(([channel_id, unread_chats]) => ({
         channel_id,
-        unread_count,
-      })) as ChannelUnreadCount[]
+        unread_chats,
+      })) as ChannelUnreadChats[]
     },
     refetchInterval: 10000, // Refetch every 10 seconds
   })
 
-  // Helper to get unread count for a channel
-  const getUnreadCount = (channelId: string) => {
-    const found = unreadCounts.find((c) => c.channel_id === channelId)
-    return found?.unread_count || 0
+  // Helper to get number of chats with unreads for a channel
+  const getUnreadChats = (channelId: string) => {
+    const found = unreadChatCounts.find((c) => c.channel_id === channelId)
+    return found?.unread_chats || 0
   }
 
-  // Total unread across all channels
-  const totalUnread = unreadCounts.reduce((sum, c) => sum + c.unread_count, 0)
+  // Total chats with unreads across all channels
+  const totalUnreadChats = unreadChatCounts.reduce((sum, c) => sum + c.unread_chats, 0)
 
   // Close dropdown when clicking outside
   useEffect(() => {
@@ -127,10 +127,10 @@ export function ChannelSelector() {
 
         <span className="font-medium text-gray-900">{displayName}</span>
 
-        {/* Unread badge */}
-        {totalUnread > 0 && (
+        {/* Unread chats badge */}
+        {totalUnreadChats > 0 && (
           <span className="rounded-full bg-green-500 px-2 py-0.5 text-xs font-medium text-white">
-            {totalUnread}
+            {totalUnreadChats}
           </span>
         )}
 
@@ -227,10 +227,10 @@ export function ChannelSelector() {
                     {channel.phone_number || 'No phone number'}
                   </p>
                 </div>
-                {/* Unread count badge */}
-                {getUnreadCount(channel.id) > 0 ? (
+                {/* Unread chats badge */}
+                {getUnreadChats(channel.id) > 0 ? (
                   <span className="flex h-5 min-w-[20px] items-center justify-center rounded-full bg-green-500 px-1.5 text-xs font-medium text-white">
-                    {getUnreadCount(channel.id) > 99 ? '99+' : getUnreadCount(channel.id)}
+                    {getUnreadChats(channel.id) > 99 ? '99+' : getUnreadChats(channel.id)}
                   </span>
                 ) : (
                   /* Show status dot only when no unreads */
