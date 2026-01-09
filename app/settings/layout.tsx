@@ -4,12 +4,14 @@
  * Settings Layout
  *
  * Shared layout for all settings pages with:
- * - Left sidebar navigation
+ * - Left sidebar navigation (filtered by user role)
  * - Header with back button
  * - Main content area
  */
 
+import { useEffect, useState } from 'react'
 import { usePathname, useRouter } from 'next/navigation'
+import { createClient } from '@/lib/supabase/client'
 import { cn } from '@/lib/utils'
 
 interface NavItem {
@@ -17,6 +19,7 @@ interface NavItem {
   label: string
   icon: React.ReactNode
   adminOnly?: boolean
+  mainAdminOnly?: boolean
 }
 
 const navItems: NavItem[] = [
@@ -47,6 +50,7 @@ const navItems: NavItem[] = [
         />
       </svg>
     ),
+    adminOnly: true,
   },
   {
     href: '/settings/team',
@@ -91,7 +95,7 @@ const navItems: NavItem[] = [
         />
       </svg>
     ),
-    adminOnly: true,
+    mainAdminOnly: true,
   },
   {
     href: '/settings/contacts',
@@ -130,6 +134,58 @@ export default function SettingsLayout({
 }) {
   const pathname = usePathname()
   const router = useRouter()
+  const supabase = createClient()
+
+  const [userRole, setUserRole] = useState<string | null>(null)
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    const fetchUserRole = async () => {
+      try {
+        const { data: { user } } = await supabase.auth.getUser()
+        if (!user) {
+          setLoading(false)
+          return
+        }
+
+        const { data: profile } = await supabase
+          .from('profiles')
+          .select('role')
+          .eq('user_id', user.id)
+          .single()
+
+        setUserRole(profile?.role || null)
+      } catch (error) {
+        console.error('Error fetching user role:', error)
+      } finally {
+        setLoading(false)
+      }
+    }
+
+    fetchUserRole()
+  }, [supabase])
+
+  // Filter nav items based on user role
+  const filteredNavItems = navItems.filter((item) => {
+    // Main admin can see everything
+    if (userRole === 'main_admin') return true
+
+    // Admin can see adminOnly items but not mainAdminOnly
+    if (userRole === 'admin') {
+      return !item.mainAdminOnly
+    }
+
+    // Other roles can only see items without admin restrictions
+    return !item.adminOnly && !item.mainAdminOnly
+  })
+
+  if (loading) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-gray-50">
+        <div className="animate-pulse text-gray-500">Loading...</div>
+      </div>
+    )
+  }
 
   return (
     <div className="flex min-h-screen bg-gray-50">
@@ -159,7 +215,7 @@ export default function SettingsLayout({
             Settings
           </div>
           <ul className="space-y-1">
-            {navItems.map((item) => {
+            {filteredNavItems.map((item) => {
               const isActive = pathname === item.href
               return (
                 <li key={item.href}>
@@ -176,11 +232,6 @@ export default function SettingsLayout({
                       {item.icon}
                     </span>
                     {item.label}
-                    {item.adminOnly && (
-                      <span className="ml-auto rounded bg-gray-100 px-1.5 py-0.5 text-xs text-gray-500">
-                        Admin
-                      </span>
-                    )}
                   </button>
                 </li>
               )

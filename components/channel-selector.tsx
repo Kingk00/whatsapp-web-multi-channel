@@ -5,6 +5,7 @@
  *
  * Dropdown to select which channel to view in the chat list.
  * Options include individual channels and "Unified Inbox" (all channels).
+ * Shows unread message count per channel instead of status indicator.
  */
 
 import { useState, useRef, useEffect } from 'react'
@@ -20,6 +21,11 @@ interface Channel {
   phone_number: string | null
   status: string
   color: string | null
+}
+
+interface ChannelUnreadCount {
+  channel_id: string
+  unread_count: number
 }
 
 export function ChannelSelector() {
@@ -43,6 +49,44 @@ export function ChannelSelector() {
     },
   })
 
+  // Fetch unread counts per channel
+  const { data: unreadCounts = [] } = useQuery({
+    queryKey: ['channel-unread-counts'],
+    queryFn: async () => {
+      // Get sum of unread_count grouped by channel_id
+      const { data, error } = await supabase
+        .from('chats')
+        .select('channel_id, unread_count')
+        .gt('unread_count', 0)
+        .eq('is_archived', false)
+
+      if (error) throw error
+
+      // Aggregate unread counts by channel
+      const countsByChannel: Record<string, number> = {}
+      for (const chat of data || []) {
+        if (chat.channel_id) {
+          countsByChannel[chat.channel_id] = (countsByChannel[chat.channel_id] || 0) + chat.unread_count
+        }
+      }
+
+      return Object.entries(countsByChannel).map(([channel_id, unread_count]) => ({
+        channel_id,
+        unread_count,
+      })) as ChannelUnreadCount[]
+    },
+    refetchInterval: 10000, // Refetch every 10 seconds
+  })
+
+  // Helper to get unread count for a channel
+  const getUnreadCount = (channelId: string) => {
+    const found = unreadCounts.find((c) => c.channel_id === channelId)
+    return found?.unread_count || 0
+  }
+
+  // Total unread across all channels
+  const totalUnread = unreadCounts.reduce((sum, c) => sum + c.unread_count, 0)
+
   // Close dropdown when clicking outside
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
@@ -61,9 +105,6 @@ export function ChannelSelector() {
   // Get selected channel info
   const selectedChannel = channels.find((c) => c.id === selectedChannelId)
   const displayName = selectedChannel?.name || 'Unified Inbox'
-
-  // Get total unread count (would come from a different query in production)
-  const totalUnread = 0
 
   return (
     <div className="relative" ref={dropdownRef}>
@@ -186,18 +227,25 @@ export function ChannelSelector() {
                     {channel.phone_number || 'No phone number'}
                   </p>
                 </div>
-                {/* Status indicator */}
-                <div
-                  className={cn(
-                    'h-2 w-2 rounded-full',
-                    channel.status === 'active' && 'bg-green-500',
-                    channel.status === 'needs_reauth' && 'bg-yellow-500',
-                    channel.status === 'sync_error' && 'bg-red-500',
-                    !['active', 'needs_reauth', 'sync_error'].includes(
-                      channel.status
-                    ) && 'bg-gray-400'
-                  )}
-                />
+                {/* Unread count badge */}
+                {getUnreadCount(channel.id) > 0 ? (
+                  <span className="flex h-5 min-w-[20px] items-center justify-center rounded-full bg-green-500 px-1.5 text-xs font-medium text-white">
+                    {getUnreadCount(channel.id) > 99 ? '99+' : getUnreadCount(channel.id)}
+                  </span>
+                ) : (
+                  /* Show status dot only when no unreads */
+                  <div
+                    className={cn(
+                      'h-2 w-2 rounded-full',
+                      channel.status === 'active' && 'bg-green-500',
+                      channel.status === 'needs_reauth' && 'bg-yellow-500',
+                      channel.status === 'sync_error' && 'bg-red-500',
+                      !['active', 'needs_reauth', 'sync_error'].includes(
+                        channel.status
+                      ) && 'bg-gray-400'
+                    )}
+                  />
+                )}
               </button>
             ))
           )}

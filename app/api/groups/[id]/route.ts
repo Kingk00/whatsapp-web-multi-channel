@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createClient } from '@/lib/supabase/server'
+import { createClient, createServiceRoleClient } from '@/lib/supabase/server'
 
 /**
  * GET /api/groups/[id]
@@ -13,6 +13,7 @@ export async function GET(
 ) {
   try {
     const supabase = await createClient()
+    const serviceSupabase = createServiceRoleClient()
     const { id: groupId } = await params
 
     // Check authentication
@@ -41,8 +42,8 @@ export async function GET(
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
     }
 
-    // Fetch group with members and channels
-    const { data: group, error: groupError } = await supabase
+    // Fetch group with members and channels (use service role for consistency)
+    const { data: group, error: groupError } = await serviceSupabase
       .from('groups')
       .select('id, name, created_at')
       .eq('id', groupId)
@@ -53,8 +54,8 @@ export async function GET(
       return NextResponse.json({ error: 'Group not found' }, { status: 404 })
     }
 
-    // Fetch members
-    const { data: members } = await supabase
+    // Fetch members (use service role for consistency with team users API)
+    const { data: members } = await serviceSupabase
       .from('group_members')
       .select(`
         user_id,
@@ -62,8 +63,8 @@ export async function GET(
       `)
       .eq('group_id', groupId)
 
-    // Fetch channels
-    const { data: channels } = await supabase
+    // Fetch channels (use service role for consistency)
+    const { data: channels } = await serviceSupabase
       .from('group_channels')
       .select(`
         channel_id,

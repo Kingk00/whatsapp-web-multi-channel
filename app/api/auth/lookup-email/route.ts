@@ -3,8 +3,9 @@ import { createServiceRoleClient } from '@/lib/supabase/server'
 
 /**
  * POST /api/auth/lookup-email
- * Look up a user's email by username (display_name) for login
- * This is public but only returns email if username exists
+ * Look up a user's email by username for login.
+ * Accepts username with or without @ prefix.
+ * This is public but only returns email if username exists.
  */
 export async function POST(request: NextRequest) {
   try {
@@ -17,13 +18,16 @@ export async function POST(request: NextRequest) {
       )
     }
 
+    // Strip @ symbol if provided (users may enter @username or username)
+    const cleanUsername = username.replace(/^@/, '').toLowerCase()
+
     const supabase = createServiceRoleClient()
 
-    // Look up user_id from profiles table by display_name (case-insensitive)
+    // Look up user_id from profiles table by username (case-insensitive)
     const { data: profile, error: profileError } = await supabase
       .from('profiles')
       .select('user_id')
-      .ilike('display_name', username)
+      .ilike('username', cleanUsername)
       .single()
 
     if (profileError || !profile) {
