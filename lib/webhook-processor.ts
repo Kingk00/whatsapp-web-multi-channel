@@ -15,7 +15,7 @@
 
 import { SupabaseClient } from '@supabase/supabase-js'
 import { createServiceRoleClient } from '@/lib/supabase/server'
-import { getOrCreateChat, updateChatLastMessage } from '@/lib/chat-helpers'
+import { getOrCreateChat, updateChatLastMessage, markChatAsRead } from '@/lib/chat-helpers'
 
 // ============================================================================
 // Types
@@ -332,6 +332,12 @@ async function processSingleMessage(
       timestamp: timestamp,
       incrementUnread: direction === 'inbound',
     })
+
+    // Mark chat as read when an outbound message is sent
+    // (from phone, WhatsApp web, or another user in the system)
+    if (direction === 'outbound') {
+      await markChatAsRead(supabase, chat.id)
+    }
 
     return {
       success: true,
