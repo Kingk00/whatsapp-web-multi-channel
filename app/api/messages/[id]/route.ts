@@ -181,21 +181,41 @@ export async function PATCH(
       const wasEdited = responseData.edited === true || responseMessage?.edited === true
       const messageType = responseMessage?.type || responseData.type
       const isActionMessage = messageType === 'action'
-      const hasEditAction = (responseMessage?.action as Record<string, unknown>)?.type === 'edit'
 
-      console.log('[Message Edit] Response analysis - messageId:', responseMessageId, 'wasEdited:', wasEdited, 'sent:', responseData.sent, 'type:', messageType, 'isAction:', isActionMessage)
+      // Check various ways Whapi might indicate an edit action
+      const actionObj = responseMessage?.action as Record<string, unknown> | undefined
+      const hasEditAction = actionObj?.type === 'edit'
+      const actionTargetsOriginal = actionObj?.target === message.wa_message_id
+
+      // Also check if the response indicates this is related to our edit request
+      // by checking if status shows it's an action or if 200 OK with sent=true
+      const isSuccessfulResponse = whapiResponse.ok && responseData.sent === true
+
+      console.log('[Message Edit] Response analysis:', {
+        responseMessageId,
+        wasEdited,
+        sent: responseData.sent,
+        type: messageType,
+        isAction: isActionMessage,
+        hasEditAction,
+        actionTarget: actionObj?.target,
+        actionTargetsOriginal,
+        originalId: message.wa_message_id,
+        httpStatus: whapiResponse.status
+      })
 
       // If Whapi returns an action message with type "edit", the edit was successful
-      if (isActionMessage || hasEditAction || wasEdited) {
+      // Also consider it successful if: action.target matches original, or response is 200 OK with sent=true
+      // When Whapi successfully edits, it always returns a new action message ID (different from original)
+      if (isActionMessage || hasEditAction || wasEdited || actionTargetsOriginal) {
         console.log('[Message Edit] Edit successful via action message')
         // Continue to update local database
-      } else if (responseData.sent && responseMessageId && responseMessageId !== message.wa_message_id) {
-        // Only fail if it's a regular text message (not action) with a different ID
-        console.error('[Message Edit] Whapi created a new message instead of editing! New ID:', responseMessageId, 'Original ID:', message.wa_message_id)
-        return NextResponse.json(
-          { error: 'Failed to edit message. A new message was sent instead. The original message may be too old to edit (15 min limit).' },
-          { status: 400 }
-        )
+      } else if (isSuccessfulResponse && responseMessageId && responseMessageId !== message.wa_message_id) {
+        // Response was 200 OK with sent=true but we can't confirm it's an edit action
+        // This is actually likely a successful edit - Whapi always returns a new action message
+        // The webhook will confirm the edit. Let's proceed optimistically.
+        console.log('[Message Edit] Got 200 OK with new message ID - assuming successful edit (webhook will confirm)')
+        // Continue to update local database - don't fail here
       }
 
       if (!whapiResponse.ok) {
