@@ -128,12 +128,14 @@ export async function PATCH(
         )
       }
 
-      // Use the SAME format as sending messages - full wa_chat_id
-      // Sending works with full format, so editing should too
-      // Previous approach of stripping suffix didn't work on WhatsApp
-      const waChatId = fullWaChatId
+      // Whapi documentation shows phone number only for edit (e.g., "919984351847")
+      // Extract just the phone number from the full chat ID
+      const isGroup = fullWaChatId.endsWith('@g.us')
+      const waChatId = isGroup
+        ? fullWaChatId  // Keep full group ID for groups
+        : fullWaChatId.replace(/@(s\.whatsapp\.net|c\.us)$/, '')  // Strip suffix for individuals
 
-      console.log('[Message Edit] Editing message:', message.wa_message_id, 'in chat:', waChatId)
+      console.log('[Message Edit] Editing message:', message.wa_message_id, 'to:', waChatId, '(from:', fullWaChatId, ')')
 
       // Whapi uses POST /messages/text with "edit" parameter to edit messages
       // (PUT /messages/{id} is for marking as read, NOT editing)
