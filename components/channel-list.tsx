@@ -11,7 +11,7 @@ interface Channel {
   id: string
   name: string
   phone_number: string | null
-  status: 'pending_qr' | 'active' | 'needs_reauth' | 'sync_error' | 'degraded' | 'stopped'
+  status: 'active' | 'needs_reauth' | 'sync_error' | 'degraded' | 'stopped'
   created_at: string
   last_synced_at: string | null
   webhook_secret: string | null

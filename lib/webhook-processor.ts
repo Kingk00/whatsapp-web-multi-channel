@@ -1652,7 +1652,7 @@ function mapChannelStatus(status: string | undefined): string | null {
       return 'needs_reauth'
     case 'loading':
     case 'connecting':
-      return 'pending_qr'
+      return 'active'
     default:
       return null
   }

@@ -238,22 +238,6 @@ describe('WhapiClient', () => {
     })
   })
 
-  describe('getQrCode', () => {
-    it('should return QR code data', async () => {
-      mockFetch.mockResolvedValueOnce({
-        ok: true,
-        json: async () => ({
-          qr: 'qr-string-data',
-          image: 'base64-image-data',
-        }),
-      })
-
-      const result = await client.getQrCode()
-
-      expect(result.qr).toBe('qr-string-data')
-    })
-  })
-
   describe('error handling', () => {
     it('should throw error with status and message on API error', async () => {
       mockFetch.mockResolvedValueOnce({

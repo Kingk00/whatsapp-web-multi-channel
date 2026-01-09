@@ -193,8 +193,7 @@ export function ChannelSelector() {
                     channel.status === 'active' && 'bg-green-500',
                     channel.status === 'needs_reauth' && 'bg-yellow-500',
                     channel.status === 'sync_error' && 'bg-red-500',
-                    channel.status === 'pending_qr' && 'bg-blue-500',
-                    !['active', 'needs_reauth', 'sync_error', 'pending_qr'].includes(
+                    !['active', 'needs_reauth', 'sync_error'].includes(
                       channel.status
                     ) && 'bg-gray-400'
                   )}

@@ -1,6 +1,6 @@
 import { cn } from '@/lib/utils'
 
-type ChannelStatus = 'pending_qr' | 'active' | 'needs_reauth' | 'sync_error' | 'degraded' | 'stopped'
+type ChannelStatus = 'active' | 'needs_reauth' | 'sync_error' | 'degraded' | 'stopped'
 
 interface ChannelStatusBadgeProps {
   status: ChannelStatus
@@ -25,13 +25,6 @@ const STATUS_CONFIG: Record<
     bgColor: 'bg-green-100',
     dotColor: 'bg-green-500',
     description: 'Channel is connected and working normally',
-  },
-  pending_qr: {
-    label: 'Pending QR',
-    color: 'text-blue-700',
-    bgColor: 'bg-blue-100',
-    dotColor: 'bg-blue-500',
-    description: 'Waiting for QR code scan',
   },
   needs_reauth: {
     label: 'Needs Reauth',

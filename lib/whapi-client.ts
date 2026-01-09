@@ -130,13 +130,6 @@ export class WhapiClient {
   }
 
   /**
-   * Get QR code for linking device
-   */
-  async getQrCode(): Promise<{ qr: string; image?: string }> {
-    return this.request<{ qr: string; image?: string }>('/users/login/image')
-  }
-
-  /**
    * Send text message
    */
   async sendText(options: SendTextOptions): Promise<WhapiMessageResponse> {

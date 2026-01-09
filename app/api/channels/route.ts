@@ -91,8 +91,8 @@ export async function POST(request: NextRequest) {
       .insert({
         name,
         workspace_id: workspaceId,
-        status: 'INITIALIZING',
-        health_status: { status: 'unknown' },
+        status: 'active',
+        health_status: { status: 'connected' },
         webhook_secret: webhookSecret,
       })
       .select('id, name, status, health_status, created_at, workspace_id')
@@ -196,19 +196,9 @@ export async function POST(request: NextRequest) {
         // User can manually configure the webhook
       } else {
         console.log('[Channel Creation] Webhook configured successfully')
-        // Update channel status to indicate webhook is configured
-        await supabase
-          .from('channels')
-          .update({
-            status: 'pending_qr',
-            health_status: { status: 'webhook_configured', configured_at: new Date().toISOString() }
-          })
-          .eq('id', channel.id)
       }
     } catch (error) {
       console.error('[Channel Creation] Whapi verification/webhook config error:', error)
-      // If verification fails, keep the channel but leave status as INITIALIZING
-      // The user can try to connect via QR code
     }
 
     return NextResponse.json(
