@@ -4,11 +4,12 @@ import { createClient, createServiceRoleClient } from '@/lib/supabase/server'
 /**
  * PATCH /api/chats/[id]
  *
- * Update chat properties (archive, mute, pin)
+ * Update chat properties (archive, mute, pin, labels)
  *
  * Body:
- * - action: 'archive' | 'unarchive' | 'mute' | 'unmute' | 'pin' | 'unpin'
+ * - action: 'archive' | 'unarchive' | 'mute' | 'unmute' | 'pin' | 'unpin' | 'add-label' | 'remove-label'
  * - duration?: '8h' | '1w' | 'always' (for mute action)
+ * - label_id?: string (for add-label/remove-label actions)
  */
 export async function PATCH(
   request: NextRequest,
@@ -40,7 +41,7 @@ export async function PATCH(
     }
 
     const body = await request.json()
-    const { action, duration } = body
+    const { action, duration, label_id } = body
 
     let updateData: Record<string, unknown> = {}
     let responseData: Record<string, unknown> = {}
@@ -104,9 +105,77 @@ export async function PATCH(
         responseData = { is_pinned: false }
         break
 
+      case 'add-label': {
+        if (!label_id) {
+          return NextResponse.json(
+            { error: 'label_id is required for add-label action' },
+            { status: 400 }
+          )
+        }
+
+        // Verify label exists and belongs to same workspace
+        const { data: label, error: labelError } = await supabase
+          .from('chat_labels')
+          .select('id, name, color')
+          .eq('id', label_id)
+          .single()
+
+        if (labelError || !label) {
+          return NextResponse.json({ error: 'Label not found' }, { status: 404 })
+        }
+
+        // Add label assignment (upsert to handle duplicates)
+        const { error: assignError } = await supabase
+          .from('chat_label_assignments')
+          .upsert(
+            { chat_id: chatId, label_id },
+            { onConflict: 'chat_id,label_id' }
+          )
+
+        if (assignError) {
+          console.error('Error adding label:', assignError)
+          return NextResponse.json({ error: 'Failed to add label' }, { status: 500 })
+        }
+
+        return NextResponse.json({
+          success: true,
+          chat_id: chatId,
+          action: 'add-label',
+          label,
+        })
+      }
+
+      case 'remove-label': {
+        if (!label_id) {
+          return NextResponse.json(
+            { error: 'label_id is required for remove-label action' },
+            { status: 400 }
+          )
+        }
+
+        // Remove label assignment
+        const { error: removeError } = await supabase
+          .from('chat_label_assignments')
+          .delete()
+          .eq('chat_id', chatId)
+          .eq('label_id', label_id)
+
+        if (removeError) {
+          console.error('Error removing label:', removeError)
+          return NextResponse.json({ error: 'Failed to remove label' }, { status: 500 })
+        }
+
+        return NextResponse.json({
+          success: true,
+          chat_id: chatId,
+          action: 'remove-label',
+          label_id,
+        })
+      }
+
       default:
         return NextResponse.json(
-          { error: 'Invalid action. Must be archive, unarchive, mute, unmute, pin, or unpin' },
+          { error: 'Invalid action. Must be archive, unarchive, mute, unmute, pin, unpin, add-label, or remove-label' },
           { status: 400 }
         )
     }

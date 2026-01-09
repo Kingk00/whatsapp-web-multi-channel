@@ -6,6 +6,8 @@
  */
 
 import { SupabaseClient } from '@supabase/supabase-js'
+import { createHash } from 'crypto'
+import { normalizePhoneNumber } from '@/lib/phone-utils'
 
 // ============================================================================
 // Types
@@ -128,6 +130,11 @@ export async function getOrCreateChat(
   // Extract contact information from message data
   const contactInfo = extractContactInfo(waChatId, messageData)
 
+  // Compute phone hash for auto-linking to contacts
+  // Uses the same normalization as contacts API for consistent matching
+  const normalizedPhone = contactInfo.phoneNumber ? normalizePhoneNumber(contactInfo.phoneNumber) : null
+  const phoneHash = normalizedPhone ? createHash('sha256').update(normalizedPhone).digest('hex') : null
+
   // Create new chat record
   const newChat = {
     workspace_id: channel.workspace_id,
@@ -136,6 +143,7 @@ export async function getOrCreateChat(
     is_group: contactInfo.isGroup,
     display_name: contactInfo.displayName,
     phone_number: contactInfo.phoneNumber,
+    phone_e164_hash: phoneHash, // Enables auto-linking to contacts via trigger
     profile_photo_url: contactInfo.profilePhotoUrl,
     group_participants: contactInfo.groupParticipants,
     last_message_at: new Date().toISOString(),

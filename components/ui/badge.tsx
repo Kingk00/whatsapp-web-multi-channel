@@ -166,3 +166,63 @@ export function ChannelBadge({ name, color, size = 'sm', className }: ChannelBad
     </span>
   )
 }
+
+// Label badge for chat labels
+interface LabelBadgeProps {
+  name: string
+  color: string
+  size?: 'sm' | 'md'
+  onRemove?: () => void
+  className?: string
+}
+
+export function LabelBadge({ name, color, size = 'sm', onRemove, className }: LabelBadgeProps) {
+  return (
+    <span
+      className={cn(
+        'inline-flex items-center gap-1 rounded font-medium',
+        size === 'sm' && 'text-[10px] px-1.5 py-0.5',
+        size === 'md' && 'text-xs px-2 py-0.5',
+        className
+      )}
+      style={{
+        backgroundColor: `${color}25`,
+        color: color,
+      }}
+    >
+      <span
+        className={cn(
+          'rounded-full flex-shrink-0',
+          size === 'sm' && 'w-1.5 h-1.5',
+          size === 'md' && 'w-2 h-2'
+        )}
+        style={{ backgroundColor: color }}
+      />
+      <span className="truncate max-w-[60px]">{name}</span>
+      {onRemove && (
+        <button
+          onClick={(e) => {
+            e.stopPropagation()
+            onRemove()
+          }}
+          className="ml-0.5 hover:opacity-70"
+        >
+          <svg
+            xmlns="http://www.w3.org/2000/svg"
+            className={cn(
+              'flex-shrink-0',
+              size === 'sm' && 'w-2.5 h-2.5',
+              size === 'md' && 'w-3 h-3'
+            )}
+            fill="none"
+            viewBox="0 0 24 24"
+            stroke="currentColor"
+            strokeWidth={2}
+          >
+            <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+          </svg>
+        </button>
+      )}
+    </span>
+  )
+}

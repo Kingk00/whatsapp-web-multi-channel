@@ -3,12 +3,20 @@
 import { useState, useRef, useEffect } from 'react'
 import { createPortal } from 'react-dom'
 import { cn } from '@/lib/utils'
+import { LabelPicker } from '@/components/label-picker'
+
+interface Label {
+  id: string
+  name: string
+  color: string
+}
 
 interface ChatListItemMenuProps {
   chatId: string
   isArchived: boolean
   isMuted: boolean
   isPinned?: boolean
+  labels?: Label[]
   onArchive: () => void
   onMute: (duration: '8h' | '1w' | 'always') => void
   onUnmute: () => void
@@ -22,6 +30,7 @@ export function ChatListItemMenu({
   isArchived,
   isMuted,
   isPinned,
+  labels = [],
   onArchive,
   onMute,
   onUnmute,
@@ -31,6 +40,7 @@ export function ChatListItemMenu({
 }: ChatListItemMenuProps) {
   const [isOpenInternal, setIsOpenInternal] = useState(false)
   const [showMuteSubmenu, setShowMuteSubmenu] = useState(false)
+  const [showLabelsSubmenu, setShowLabelsSubmenu] = useState(false)
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
   const [menuPosition, setMenuPosition] = useState({ top: 0, left: 0 })
   const buttonRef = useRef<HTMLButtonElement>(null)
@@ -67,6 +77,7 @@ export function ChatListItemMenu({
       ) {
         setIsOpen(false)
         setShowMuteSubmenu(false)
+        setShowLabelsSubmenu(false)
         setShowDeleteConfirm(false)
       }
     }
@@ -76,6 +87,7 @@ export function ChatListItemMenu({
       if (isOpenInternal) {
         setIsOpen(false)
         setShowMuteSubmenu(false)
+        setShowLabelsSubmenu(false)
         setShowDeleteConfirm(false)
       }
     }
@@ -155,6 +167,38 @@ export function ChatListItemMenu({
             </svg>
             {isPinned ? 'Unpin' : 'Pin'}
           </button>
+
+          {/* Labels */}
+          <div className="relative">
+            <button
+              onClick={() => setShowLabelsSubmenu(!showLabelsSubmenu)}
+              className="flex w-full items-center justify-between gap-3 px-4 py-2.5 text-left text-sm text-foreground hover:bg-muted"
+            >
+              <span className="flex items-center gap-3">
+                <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A2 2 0 013 12V7a4 4 0 014-4z" />
+                </svg>
+                Labels
+                {labels.length > 0 && (
+                  <span className="text-xs text-muted-foreground">({labels.length})</span>
+                )}
+              </span>
+              <svg className={cn('h-4 w-4 transition-transform', showLabelsSubmenu && 'rotate-90')} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+              </svg>
+            </button>
+
+            {/* Labels submenu */}
+            {showLabelsSubmenu && (
+              <div className="border-t border-border">
+                <LabelPicker
+                  chatId={chatId}
+                  currentLabels={labels}
+                  onClose={() => setShowLabelsSubmenu(false)}
+                />
+              </div>
+            )}
+          </div>
 
           {/* Archive / Unarchive */}
           <button

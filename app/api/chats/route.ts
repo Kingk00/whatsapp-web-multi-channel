@@ -105,6 +105,40 @@ export async function GET(request: NextRequest) {
       )
     }
 
+    // Fetch labels for all chats in a single query
+    const chatIds = (chats || []).map((c: any) => c.id)
+    let labelsByChat: Record<string, Array<{ id: string; name: string; color: string }>> = {}
+
+    if (chatIds.length > 0) {
+      const { data: labelAssignments } = await supabase
+        .from('chat_label_assignments')
+        .select(`
+          chat_id,
+          chat_labels (
+            id,
+            name,
+            color
+          )
+        `)
+        .in('chat_id', chatIds)
+
+      // Group labels by chat_id
+      for (const assignment of labelAssignments || []) {
+        const chatId = assignment.chat_id
+        const label = assignment.chat_labels as any
+        if (label) {
+          if (!labelsByChat[chatId]) {
+            labelsByChat[chatId] = []
+          }
+          labelsByChat[chatId].push({
+            id: label.id,
+            name: label.name,
+            color: label.color,
+          })
+        }
+      }
+    }
+
     // Transform the response to flatten channel/contact data and add computed fields
     const transformedChats = (chats || []).map((chat: any) => ({
       ...chat,
@@ -112,6 +146,7 @@ export async function GET(request: NextRequest) {
       channels: undefined,
       contact: chat.contacts || null,
       contacts: undefined,
+      labels: labelsByChat[chat.id] || [],
       // Computed: is the chat currently muted?
       is_muted: chat.muted_until ? new Date(chat.muted_until) > new Date() : false,
     }))

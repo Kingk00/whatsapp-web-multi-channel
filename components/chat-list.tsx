@@ -25,7 +25,8 @@ import { ActionSheet } from '@/components/ui/bottom-sheet'
 import { useToast } from '@/components/ui/toast'
 import { getDisplayName } from '@/lib/chat-helpers'
 import { ChatAvatar } from '@/components/chat-avatar'
-import { Badge, ChannelBadge } from '@/components/ui/badge'
+import { Badge, ChannelBadge, LabelBadge } from '@/components/ui/badge'
+import { LabelPicker } from '@/components/label-picker'
 
 interface Chat {
   id: string
@@ -55,6 +56,11 @@ interface Chat {
     id: string
     display_name: string
   } | null
+  labels?: Array<{
+    id: string
+    name: string
+    color: string
+  }>
 }
 
 type ChatFilter = 'all' | 'unread' | 'groups'
@@ -414,6 +420,7 @@ function ChatListItem({
   const [showMenu, setShowMenu] = useState(false)
   const [menuOpen, setMenuOpen] = useState(false)
   const [showMobileMenu, setShowMobileMenu] = useState(false)
+  const [showMobileLabels, setShowMobileLabels] = useState(false)
   const itemRef = useRef<HTMLDivElement>(null)
   const longPressTimer = useRef<NodeJS.Timeout | null>(null)
   const isLongPress = useRef(false)
@@ -484,6 +491,14 @@ function ChatListItem({
       onClick: onPin,
     },
     {
+      label: `Labels${chat.labels && chat.labels.length > 0 ? ` (${chat.labels.length})` : ''}`,
+      icon: <LabelIcon className="h-5 w-5" />,
+      onClick: () => {
+        setShowMobileMenu(false)
+        setShowMobileLabels(true)
+      },
+    },
+    {
       label: chat.is_archived ? 'Unarchive' : 'Archive',
       icon: <ArchiveIcon className="h-5 w-5" />,
       onClick: onArchive,
@@ -510,6 +525,31 @@ function ChatListItem({
         actions={mobileActions}
         title={displayName}
       />
+
+      {/* Mobile labels sheet */}
+      {showMobileLabels && (
+        <div className="fixed inset-0 z-50 md:hidden">
+          <div
+            className="absolute inset-0 bg-black/50"
+            onClick={() => setShowMobileLabels(false)}
+          />
+          <div className="absolute bottom-0 left-0 right-0 bg-white rounded-t-xl max-h-[70vh] overflow-hidden">
+            <div className="sticky top-0 bg-white border-b border-gray-200 px-4 py-3 flex items-center justify-between">
+              <h3 className="font-medium text-gray-900">Labels for {displayName}</h3>
+              <button onClick={() => setShowMobileLabels(false)} className="text-gray-400 hover:text-gray-600">
+                <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+            <LabelPicker
+              chatId={chat.id}
+              currentLabels={chat.labels || []}
+              onClose={() => setShowMobileLabels(false)}
+            />
+          </div>
+        </div>
+      )}
       <div
         ref={itemRef}
         className={cn(
@@ -601,6 +641,18 @@ function ChatListItem({
                   </svg>
                 </span>
               )}
+
+              {/* Labels (show max 2 on list, rest hidden) */}
+              {chat.labels && chat.labels.length > 0 && (
+                <div className="flex items-center gap-1 flex-shrink-0">
+                  {chat.labels.slice(0, 2).map((label) => (
+                    <LabelBadge key={label.id} name={label.name} color={label.color} size="sm" />
+                  ))}
+                  {chat.labels.length > 2 && (
+                    <span className="text-[10px] text-muted-foreground">+{chat.labels.length - 2}</span>
+                  )}
+                </div>
+              )}
             </div>
 
             <span className={cn(
@@ -652,6 +704,7 @@ function ChatListItem({
             isArchived={chat.is_archived}
             isMuted={chat.is_muted}
             isPinned={chat.is_pinned}
+            labels={chat.labels}
             onArchive={onArchive}
             onMute={onMute}
             onUnmute={onUnmute}
@@ -704,6 +757,14 @@ function DeleteIcon({ className }: { className?: string }) {
   return (
     <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor">
       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+    </svg>
+  )
+}
+
+function LabelIcon({ className }: { className?: string }) {
+  return (
+    <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A2 2 0 013 12V7a4 4 0 014-4z" />
     </svg>
   )
 }
