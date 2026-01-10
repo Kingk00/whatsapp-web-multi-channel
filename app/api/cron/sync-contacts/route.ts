@@ -36,7 +36,7 @@ interface SyncResult {
 /**
  * GET /api/cron/sync-contacts
  *
- * Automated cron job to sync Google contacts for all workspaces every 12 hours.
+ * Automated cron job to sync Google contacts for all workspaces every 1 hour.
  * Two-way sync:
  * 1. PULL: Fetch new contacts from Google → Database
  * 2. PUSH: Send non-Google contacts from Database → Google
