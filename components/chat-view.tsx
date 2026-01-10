@@ -555,12 +555,13 @@ function ChatHeader({
               <img
                 src={chat.profile_photo_url}
                 alt={displayName}
-                className="max-w-[90vw] max-h-[80vh] rounded-lg object-contain shadow-2xl"
+                className="w-[85vw] h-[85vw] max-w-[500px] max-h-[500px] md:w-[500px] md:h-[500px] rounded-2xl object-cover shadow-2xl"
+                style={{ imageRendering: 'high-quality' }}
               />
             ) : (
               <div
                 className={cn(
-                  'flex h-64 w-64 md:h-80 md:w-80 items-center justify-center rounded-full text-8xl font-bold text-white shadow-2xl',
+                  'flex w-[85vw] h-[85vw] max-w-[500px] max-h-[500px] md:w-[500px] md:h-[500px] items-center justify-center rounded-full text-[150px] font-bold text-white shadow-2xl',
                   chat?.is_group ? 'bg-blue-500' : 'bg-gradient-to-br from-whatsapp-400 to-whatsapp-600'
                 )}
               >
