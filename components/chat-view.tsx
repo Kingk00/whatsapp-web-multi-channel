@@ -556,7 +556,6 @@ function ChatHeader({
                 src={chat.profile_photo_url}
                 alt={displayName}
                 className="w-[85vw] h-[85vw] max-w-[500px] max-h-[500px] md:w-[500px] md:h-[500px] rounded-2xl object-cover shadow-2xl"
-                style={{ imageRendering: 'high-quality' }}
               />
             ) : (
               <div
