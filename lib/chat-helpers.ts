@@ -85,6 +85,8 @@ export interface UpdateChatOptions {
   text: string | null
   timestamp: string
   incrementUnread?: boolean
+  direction?: 'inbound' | 'outbound'
+  status?: string | null
 }
 
 // ============================================================================
@@ -180,7 +182,7 @@ export async function updateChatLastMessage(
   chatId: string,
   options: UpdateChatOptions
 ): Promise<void> {
-  const { text, timestamp, incrementUnread = false } = options
+  const { text, timestamp, incrementUnread = false, direction = 'inbound', status = null } = options
 
   // Truncate preview text
   const preview = text ? truncateText(text, 100) : null
@@ -189,6 +191,8 @@ export async function updateChatLastMessage(
   const updateData: Record<string, any> = {
     last_message_at: timestamp,
     last_message_preview: preview,
+    last_message_direction: direction,
+    last_message_status: status,
     updated_at: new Date().toISOString(),
   }
 
@@ -200,6 +204,8 @@ export async function updateChatLastMessage(
       chat_id: chatId,
       preview_text: preview,
       message_time: timestamp,
+      message_direction: direction,
+      message_status: status,
     })
 
     if (error) {

@@ -327,10 +327,13 @@ async function processSingleMessage(
     }
 
     // Update chat's last message info and unread count
+    const messageStatus = direction === 'outbound' ? (messageData.status || 'sent') : null
     await updateChatLastMessage(supabase, chat.id, {
       text: textContent,
       timestamp: timestamp,
       incrementUnread: direction === 'inbound',
+      direction: direction,
+      status: messageStatus,
     })
 
     // Mark chat as read when an outbound message is sent
@@ -413,7 +416,7 @@ async function processStatusEvent(
     .eq('channel_id', channel.id)
     .eq('wa_message_id', waMessageId)
     .eq('direction', 'outbound')
-    .select()
+    .select('id, chat_id, created_at')
 
   if (error) {
     console.error('Status update error:', error)
@@ -421,6 +424,31 @@ async function processStatusEvent(
       success: false,
       action: 'error',
       error: error.message,
+    }
+  }
+
+  // If message was updated, also update chat's last_message_status if this is the latest message
+  if (data && data.length > 0) {
+    const message = data[0]
+    // Check if this message is the chat's last message by comparing timestamps
+    const { data: chat } = await supabase
+      .from('chats')
+      .select('last_message_at')
+      .eq('id', message.chat_id)
+      .single()
+
+    // Only update chat status if this is the most recent message (within 1 second tolerance)
+    if (chat?.last_message_at) {
+      const chatLastMessageTime = new Date(chat.last_message_at).getTime()
+      const messageTime = new Date(message.created_at).getTime()
+      const timeDiff = Math.abs(chatLastMessageTime - messageTime)
+
+      if (timeDiff < 1000) {
+        await supabase
+          .from('chats')
+          .update({ last_message_status: newStatus })
+          .eq('id', message.chat_id)
+      }
     }
   }
 

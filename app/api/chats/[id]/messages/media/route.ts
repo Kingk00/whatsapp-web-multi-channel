@@ -221,6 +221,8 @@ export async function POST(
         .update({
           last_message_at: new Date().toISOString(),
           last_message_preview: caption?.trim() || `[${mediaType}]`,
+          last_message_direction: 'outbound',
+          last_message_status: 'sent',
           updated_at: new Date().toISOString(),
         })
         .eq('id', chatId)

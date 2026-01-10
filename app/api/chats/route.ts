@@ -53,6 +53,8 @@ export async function GET(request: NextRequest) {
         profile_photo_url,
         last_message_at,
         last_message_preview,
+        last_message_direction,
+        last_message_status,
         unread_count,
         is_archived,
         muted_until,

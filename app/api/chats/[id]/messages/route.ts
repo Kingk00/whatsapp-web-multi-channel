@@ -230,6 +230,8 @@ export async function POST(
       .update({
         last_message_at: new Date().toISOString(),
         last_message_preview: text.trim().slice(0, 100),
+        last_message_direction: 'outbound',
+        last_message_status: 'pending',
         updated_at: new Date().toISOString(),
       })
       .eq('id', chatId)

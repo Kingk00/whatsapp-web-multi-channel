@@ -40,6 +40,8 @@ interface Chat {
   profile_photo_url: string | null
   last_message_at: string | null
   last_message_preview: string | null
+  last_message_direction: 'inbound' | 'outbound' | null
+  last_message_status: string | null
   unread_count: number
   is_archived: boolean
   muted_until: string | null
@@ -667,10 +669,36 @@ function ChatListItem({
           {/* Bottom row: Message preview + Unread badge */}
           <div className="mt-1 flex items-center justify-between gap-2">
             <p className={cn(
-              'truncate text-sm',
+              'truncate text-sm flex items-center gap-1',
               chat.unread_count > 0 ? 'text-foreground/80' : 'text-muted-foreground'
             )}>
-              {chat.last_message_preview || 'No messages yet'}
+              {/* Message status indicator for outbound messages */}
+              {chat.last_message_direction === 'outbound' && (
+                <span className="flex-shrink-0">
+                  {chat.last_message_status === 'read' ? (
+                    // Double blue tick - read
+                    <svg className="h-4 w-4 text-blue-500" viewBox="0 0 16 16" fill="currentColor">
+                      <path d="M1.5 8.5l3 3 7-7M5.5 8.5l3 3 7-7" stroke="currentColor" strokeWidth="1.5" fill="none" strokeLinecap="round" strokeLinejoin="round"/>
+                    </svg>
+                  ) : chat.last_message_status === 'delivered' ? (
+                    // Double gray tick - delivered
+                    <svg className="h-4 w-4 text-gray-400" viewBox="0 0 16 16" fill="currentColor">
+                      <path d="M1.5 8.5l3 3 7-7M5.5 8.5l3 3 7-7" stroke="currentColor" strokeWidth="1.5" fill="none" strokeLinecap="round" strokeLinejoin="round"/>
+                    </svg>
+                  ) : chat.last_message_status === 'failed' ? (
+                    // Error indicator
+                    <svg className="h-4 w-4 text-red-500" viewBox="0 0 16 16" fill="currentColor">
+                      <path d="M8 1.5a6.5 6.5 0 100 13 6.5 6.5 0 000-13zM7.25 4.75a.75.75 0 011.5 0v3.5a.75.75 0 01-1.5 0v-3.5zm.75 6.25a.75.75 0 110-1.5.75.75 0 010 1.5z"/>
+                    </svg>
+                  ) : (
+                    // Single gray tick - sent/pending
+                    <svg className="h-4 w-4 text-gray-400" viewBox="0 0 16 16" fill="currentColor">
+                      <path d="M3 8.5l4 4 6-6" stroke="currentColor" strokeWidth="1.5" fill="none" strokeLinecap="round" strokeLinejoin="round"/>
+                    </svg>
+                  )}
+                </span>
+              )}
+              <span className="truncate">{chat.last_message_preview || 'No messages yet'}</span>
             </p>
 
             {/* Unread badge */}
