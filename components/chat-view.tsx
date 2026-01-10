@@ -384,6 +384,21 @@ function ChatHeader({
   onBack?: () => void
 }) {
   const { toggleDetailsPanel } = useUIStore()
+  const [showProfilePhoto, setShowProfilePhoto] = useState(false)
+
+  // Close modal on Escape key
+  useEffect(() => {
+    if (!showProfilePhoto) return
+
+    const handleEscape = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        setShowProfilePhoto(false)
+      }
+    }
+
+    document.addEventListener('keydown', handleEscape)
+    return () => document.removeEventListener('keydown', handleEscape)
+  }, [showProfilePhoto])
 
   // Format last seen time
   const getLastSeenText = () => {
@@ -433,20 +448,22 @@ function ChatHeader({
           </button>
         )}
 
-        {/* Avatar */}
+        {/* Avatar - clickable to enlarge */}
         <div className="relative">
           {chat?.profile_photo_url ? (
             <img
               src={chat.profile_photo_url}
               alt={displayName}
-              className="h-12 w-12 rounded-full object-cover bg-muted"
+              className="h-12 w-12 rounded-full object-cover bg-muted cursor-pointer hover:opacity-90 transition-opacity"
+              onClick={() => setShowProfilePhoto(true)}
             />
           ) : (
             <div
               className={cn(
-                'flex h-12 w-12 items-center justify-center rounded-full text-white font-medium',
+                'flex h-12 w-12 items-center justify-center rounded-full text-white font-medium cursor-pointer hover:opacity-90 transition-opacity',
                 chat?.is_group ? 'bg-blue-500' : 'bg-gradient-to-br from-whatsapp-400 to-whatsapp-600'
               )}
+              onClick={() => setShowProfilePhoto(true)}
             >
               {displayName.charAt(0).toUpperCase()}
             </div>
@@ -503,6 +520,56 @@ function ChatHeader({
           </svg>
         </button>
       </div>
+
+      {/* Profile Photo Modal */}
+      {showProfilePhoto && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 animate-in fade-in duration-200"
+          onClick={() => setShowProfilePhoto(false)}
+        >
+          {/* Close button */}
+          <button
+            onClick={() => setShowProfilePhoto(false)}
+            className="absolute top-4 right-4 p-2 text-white/80 hover:text-white transition-colors"
+            aria-label="Close"
+          >
+            <svg className="h-8 w-8" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          </button>
+
+          {/* Contact name */}
+          <div className="absolute top-4 left-4 text-white">
+            <h3 className="text-lg font-medium">{displayName}</h3>
+            {chat?.phone_number && (
+              <p className="text-sm text-white/70">{chat.phone_number}</p>
+            )}
+          </div>
+
+          {/* Enlarged photo */}
+          <div
+            className="animate-in zoom-in-95 duration-200"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {chat?.profile_photo_url ? (
+              <img
+                src={chat.profile_photo_url}
+                alt={displayName}
+                className="max-w-[90vw] max-h-[80vh] rounded-lg object-contain shadow-2xl"
+              />
+            ) : (
+              <div
+                className={cn(
+                  'flex h-64 w-64 md:h-80 md:w-80 items-center justify-center rounded-full text-8xl font-bold text-white shadow-2xl',
+                  chat?.is_group ? 'bg-blue-500' : 'bg-gradient-to-br from-whatsapp-400 to-whatsapp-600'
+                )}
+              >
+                {displayName.charAt(0).toUpperCase()}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
     </header>
   )
 }
