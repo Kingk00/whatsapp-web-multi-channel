@@ -1279,9 +1279,10 @@ function MessageComposer({
   }
 
   // Send mutation for text messages
+  // Note: We pass chatId in variables to capture it at send time, preventing stale closure bugs
   const sendTextMutation = useMutation({
-    mutationFn: async (messageText: string) => {
-      const response = await fetch(`/api/chats/${chatId}/messages`, {
+    mutationFn: async ({ messageText, targetChatId }: { messageText: string; targetChatId: string }) => {
+      const response = await fetch(`/api/chats/${targetChatId}/messages`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ text: messageText }),
@@ -1290,16 +1291,18 @@ function MessageComposer({
         const error = await response.json()
         throw new Error(error.error || 'Failed to send message')
       }
-      return response.json()
+      const data = await response.json()
+      return { ...data, targetChatId }
     },
     onSuccess: (data) => {
+      const { targetChatId } = data
       setText('')
-      clearDraft(chatId)
+      clearDraft(targetChatId)
 
       // Update the message in cache with the correct status from API response
       if (data.message) {
         queryClient.setQueryData(
-          queryKeys.messages.list(chatId),
+          queryKeys.messages.list(targetChatId),
           (old: { messages: Message[]; nextCursor?: string } | undefined) => {
             if (!old?.messages) return old
 
@@ -1329,8 +1332,9 @@ function MessageComposer({
   })
 
   // Send mutation for media messages
+  // Note: We pass chatId in variables to capture it at send time, preventing stale closure bugs
   const sendMediaMutation = useMutation({
-    mutationFn: async ({ file, caption, viewOnce }: { file: File; caption: string; viewOnce: boolean }) => {
+    mutationFn: async ({ file, caption, viewOnce, targetChatId }: { file: File; caption: string; viewOnce: boolean; targetChatId: string }) => {
       const formData = new FormData()
       formData.append('file', file)
       formData.append('caption', caption)
@@ -1338,7 +1342,7 @@ function MessageComposer({
         formData.append('view_once', 'true')
       }
 
-      const response = await fetch(`/api/chats/${chatId}/messages/media`, {
+      const response = await fetch(`/api/chats/${targetChatId}/messages/media`, {
         method: 'POST',
         body: formData,
       })
@@ -1346,17 +1350,19 @@ function MessageComposer({
         const error = await response.json()
         throw new Error(error.error || 'Failed to send media')
       }
-      return response.json()
+      const data = await response.json()
+      return { ...data, targetChatId }
     },
     onSuccess: (data) => {
+      const { targetChatId } = data
       setText('')
       clearFile()
-      clearDraft(chatId)
+      clearDraft(targetChatId)
 
       // Update the message in cache with the correct status from API response
       if (data.message) {
         queryClient.setQueryData(
-          queryKeys.messages.list(chatId),
+          queryKeys.messages.list(targetChatId),
           (old: { messages: Message[]; nextCursor?: string } | undefined) => {
             if (!old?.messages) return old
 
@@ -1387,9 +1393,10 @@ function MessageComposer({
   })
 
   // Send quick reply media by URL
+  // Note: We pass chatId in variables to capture it at send time, preventing stale closure bugs
   const sendQuickReplyMediaMutation = useMutation({
-    mutationFn: async ({ mediaUrl, caption, mediaType, viewOnce }: { mediaUrl: string; caption: string; mediaType: string; viewOnce?: boolean }) => {
-      const response = await fetch(`/api/chats/${chatId}/messages/media`, {
+    mutationFn: async ({ mediaUrl, caption, mediaType, viewOnce, targetChatId }: { mediaUrl: string; caption: string; mediaType: string; viewOnce?: boolean; targetChatId: string }) => {
+      const response = await fetch(`/api/chats/${targetChatId}/messages/media`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -1403,10 +1410,12 @@ function MessageComposer({
         const error = await response.json()
         throw new Error(error.error || 'Failed to send media')
       }
-      return response.json()
+      const data = await response.json()
+      return { ...data, targetChatId }
     },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: queryKeys.messages.list(chatId) })
+    onSuccess: (data) => {
+      const { targetChatId } = data
+      queryClient.invalidateQueries({ queryKey: queryKeys.messages.list(targetChatId) })
       queryClient.invalidateQueries({ queryKey: queryKeys.chats.all })
     },
     onError: (error: Error) => {
@@ -1418,12 +1427,14 @@ function MessageComposer({
     if (sendTextMutation.isPending || sendMediaMutation.isPending || sendQuickReplyMediaMutation.isPending) return
 
     const trimmedText = text.trim()
+    // Capture chatId at send time to prevent stale closure bugs
+    const targetChatId = chatId
 
     // Handle quick reply attachments
     if (quickReplyAttachments.length > 0) {
       // Send text first if any
       if (trimmedText) {
-        sendTextMutation.mutate(trimmedText)
+        sendTextMutation.mutate({ messageText: trimmedText, targetChatId })
       }
       // Check if view once is enabled and applicable (only for images/videos)
       const canUseViewOnce = quickReplyAttachments.some(
@@ -1438,11 +1449,12 @@ function MessageComposer({
             caption: '', // Caption already sent as text
             mediaType: attachment.kind,
             viewOnce: quickReplyViewOnce && isViewOnceEligible,
+            targetChatId,
           })
         }
       }
       setText('')
-      clearDraft(chatId)
+      clearDraft(targetChatId)
       clearQuickReplyAttachments()
       addToast('Quick reply sent', 'success')
       return
@@ -1453,10 +1465,11 @@ function MessageComposer({
         file: selectedFile.file,
         caption: trimmedText,
         viewOnce: isViewOnce && (selectedFile.type === 'image' || selectedFile.type === 'video'),
+        targetChatId,
       })
     } else {
       if (!trimmedText) return
-      sendTextMutation.mutate(trimmedText)
+      sendTextMutation.mutate({ messageText: trimmedText, targetChatId })
     }
   }
 
