@@ -1296,8 +1296,6 @@ function MessageComposer({
     },
     onSuccess: (data) => {
       const { targetChatId } = data
-      setText('')
-      clearDraft(targetChatId)
 
       // Update the message in cache with the correct status from API response
       if (data.message) {
@@ -1355,9 +1353,6 @@ function MessageComposer({
     },
     onSuccess: (data) => {
       const { targetChatId } = data
-      setText('')
-      clearFile()
-      clearDraft(targetChatId)
 
       // Update the message in cache with the correct status from API response
       if (data.message) {
@@ -1432,16 +1427,18 @@ function MessageComposer({
 
     // Handle quick reply attachments
     if (quickReplyAttachments.length > 0) {
+      // Clear input immediately for instant feedback
+      setText('')
+      clearDraft(targetChatId)
+      const attachmentsToSend = [...quickReplyAttachments]
+      clearQuickReplyAttachments()
+
       // Send text first if any
       if (trimmedText) {
         sendTextMutation.mutate({ messageText: trimmedText, targetChatId })
       }
-      // Check if view once is enabled and applicable (only for images/videos)
-      const canUseViewOnce = quickReplyAttachments.some(
-        (att) => att.kind === 'image' || att.kind === 'video'
-      )
       // Send each attachment
-      for (const attachment of quickReplyAttachments) {
+      for (const attachment of attachmentsToSend) {
         if (attachment.url) {
           const isViewOnceEligible = attachment.kind === 'image' || attachment.kind === 'video'
           await sendQuickReplyMediaMutation.mutateAsync({
@@ -1453,14 +1450,16 @@ function MessageComposer({
           })
         }
       }
-      setText('')
-      clearDraft(targetChatId)
-      clearQuickReplyAttachments()
       addToast('Quick reply sent', 'success')
       return
     }
 
     if (selectedFile) {
+      // Clear input immediately for instant feedback
+      setText('')
+      clearFile()
+      clearDraft(targetChatId)
+
       sendMediaMutation.mutate({
         file: selectedFile.file,
         caption: trimmedText,
@@ -1469,6 +1468,11 @@ function MessageComposer({
       })
     } else {
       if (!trimmedText) return
+
+      // Clear input immediately for instant feedback
+      setText('')
+      clearDraft(targetChatId)
+
       sendTextMutation.mutate({ messageText: trimmedText, targetChatId })
     }
   }
