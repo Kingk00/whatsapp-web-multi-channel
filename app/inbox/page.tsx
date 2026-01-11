@@ -263,13 +263,10 @@ export default function InboxPage() {
                 {(['all', 'unread', 'groups'] as const).map((filter) => (
                   <button
                     key={filter}
-                    onClick={() => {
-                      setChatFilter(filter)
-                      setSelectedLabelId(null) // Clear label filter when changing filter
-                    }}
+                    onClick={() => setChatFilter(filter)}
                     className={cn(
                       'flex-1 min-h-[44px] py-2.5 text-sm font-medium rounded-xl transition-colors active:scale-[0.98]',
-                      chatFilter === filter && !selectedLabelId
+                      chatFilter === filter
                         ? 'bg-whatsapp-500 text-white shadow-sm'
                         : 'text-muted-foreground hover:bg-muted active:bg-muted/80'
                     )}
