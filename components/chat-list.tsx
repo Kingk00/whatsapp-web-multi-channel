@@ -71,6 +71,7 @@ interface ChatListProps {
   channelId: string | null
   searchQuery?: string
   filter?: ChatFilter
+  labelId?: string | null
   onSelectChat?: (chatId: string | null, channelId?: string) => void
 }
 
@@ -78,6 +79,7 @@ export function ChatList({
   channelId,
   searchQuery = '',
   filter = 'all',
+  labelId = null,
   onSelectChat,
 }: ChatListProps) {
   const { selectedChatId, selectChat, hiddenChannelIds } = useUIStore()
@@ -220,6 +222,13 @@ export function ChatList({
       filtered = filtered.filter((chat) => chat.unread_count > 0)
     } else if (filter === 'groups') {
       filtered = filtered.filter((chat) => chat.is_group)
+    }
+
+    // Apply label filter
+    if (labelId) {
+      filtered = filtered.filter((chat) =>
+        chat.labels?.some((label) => label.id === labelId)
+      )
     }
 
     // Apply search query

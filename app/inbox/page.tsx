@@ -21,16 +21,24 @@ import { ConnectionBanner } from '@/components/connection-banner'
 import { ContactInfoPanel } from '@/components/contact-info-panel'
 import { BottomNavigation, NavItem } from '@/components/ui/bottom-navigation'
 import { cn } from '@/lib/utils'
-import { useQueryClient } from '@tanstack/react-query'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { queryKeys } from '@/lib/query-client'
 
 type ChatFilter = 'all' | 'unread' | 'groups'
+
+interface Label {
+  id: string
+  name: string
+  color: string
+}
 
 export default function InboxPage() {
   const router = useRouter()
   const { isLoading, isAuthenticated, profile, signOut } = useRequireAuth()
   const [searchQuery, setSearchQuery] = useState('')
   const [chatFilter, setChatFilter] = useState<ChatFilter>('all')
+  const [selectedLabelId, setSelectedLabelId] = useState<string | null>(null)
+  const [showLabels, setShowLabels] = useState(true)
   const [activeNav, setActiveNav] = useState<NavItem>('chats')
   const [isMobile, setIsMobile] = useState(false)
   const searchInputRef = useRef<HTMLInputElement>(null)
@@ -44,6 +52,23 @@ export default function InboxPage() {
     toggleDetailsPanel,
     selectChat,
   } = useUIStore()
+
+  // Fetch labels for the Labels section
+  const { data: labelsData } = useQuery({
+    queryKey: ['labels'],
+    queryFn: async () => {
+      const response = await fetch('/api/labels')
+      if (!response.ok) throw new Error('Failed to fetch labels')
+      return response.json()
+    },
+  })
+
+  const labels: Label[] = labelsData?.labels || []
+
+  // Handle label selection - clears when clicking the same label
+  const handleLabelClick = useCallback((labelId: string) => {
+    setSelectedLabelId((prev) => (prev === labelId ? null : labelId))
+  }, [])
 
   // Detect mobile viewport
   useEffect(() => {
@@ -216,10 +241,13 @@ export default function InboxPage() {
                 {(['all', 'unread', 'groups'] as const).map((filter) => (
                   <button
                     key={filter}
-                    onClick={() => setChatFilter(filter)}
+                    onClick={() => {
+                      setChatFilter(filter)
+                      setSelectedLabelId(null) // Clear label filter when changing filter
+                    }}
                     className={cn(
                       'flex-1 min-h-[44px] py-2.5 text-sm font-medium rounded-xl transition-colors active:scale-[0.98]',
-                      chatFilter === filter
+                      chatFilter === filter && !selectedLabelId
                         ? 'bg-whatsapp-500 text-white shadow-sm'
                         : 'text-muted-foreground hover:bg-muted active:bg-muted/80'
                     )}
@@ -228,6 +256,57 @@ export default function InboxPage() {
                   </button>
                 ))}
               </div>
+
+              {/* Labels section */}
+              {labels.length > 0 && (
+                <div className="space-y-2">
+                  <button
+                    onClick={() => setShowLabels(!showLabels)}
+                    className="flex w-full items-center justify-between text-xs font-medium text-muted-foreground hover:text-foreground transition-colors"
+                  >
+                    <span className="flex items-center gap-1.5">
+                      <LabelIcon className="h-3.5 w-3.5" />
+                      Labels ({labels.length})
+                    </span>
+                    <svg
+                      className={cn('h-3.5 w-3.5 transition-transform duration-200', showLabels && 'rotate-180')}
+                      fill="none"
+                      viewBox="0 0 24 24"
+                      stroke="currentColor"
+                    >
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                    </svg>
+                  </button>
+
+                  {showLabels && (
+                    <div className="flex flex-wrap gap-1.5">
+                      {labels.map((label) => (
+                        <button
+                          key={label.id}
+                          onClick={() => handleLabelClick(label.id)}
+                          className={cn(
+                            'inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium transition-all active:scale-[0.98]',
+                            selectedLabelId === label.id
+                              ? 'ring-2 ring-offset-1 ring-offset-background'
+                              : 'opacity-80 hover:opacity-100'
+                          )}
+                          style={{
+                            backgroundColor: `${label.color}20`,
+                            color: label.color,
+                            ...(selectedLabelId === label.id && { ringColor: label.color }),
+                          }}
+                        >
+                          <span
+                            className="h-2 w-2 rounded-full"
+                            style={{ backgroundColor: label.color }}
+                          />
+                          {label.name}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
 
             {/* Chat list */}
@@ -236,6 +315,7 @@ export default function InboxPage() {
                 channelId={selectedChannelId}
                 searchQuery={searchQuery}
                 filter={chatFilter}
+                labelId={selectedLabelId}
                 onSelectChat={handleSelectChat}
               />
             </div>
@@ -337,6 +417,14 @@ function ChatBubbleIcon({ className }: { className?: string }) {
   return (
     <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor">
       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
+    </svg>
+  )
+}
+
+function LabelIcon({ className }: { className?: string }) {
+  return (
+    <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A2 2 0 013 12V7a4 4 0 014-4z" />
     </svg>
   )
 }

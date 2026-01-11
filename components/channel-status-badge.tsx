@@ -1,6 +1,6 @@
 import { cn } from '@/lib/utils'
 
-type ChannelStatus = 'active' | 'needs_reauth' | 'sync_error' | 'degraded' | 'stopped'
+type ChannelStatus = 'active' | 'needs_reauth' | 'sync_error' | 'degraded' | 'stopped' | 'disconnected'
 
 interface ChannelStatusBadgeProps {
   status: ChannelStatus
@@ -53,6 +53,13 @@ const STATUS_CONFIG: Record<
     bgColor: 'bg-gray-100',
     dotColor: 'bg-gray-500',
     description: 'Channel has been manually stopped',
+  },
+  disconnected: {
+    label: 'Disconnected',
+    color: 'text-red-700',
+    bgColor: 'bg-red-100',
+    dotColor: 'bg-red-500',
+    description: 'Webhook is disconnected, channel is offline',
   },
 }
 

@@ -77,7 +77,7 @@ export async function PATCH(
     }
 
     if (status !== undefined) {
-      const validStatuses = ['ACTIVE', 'INITIALIZING', 'NEEDS_REAUTH', 'STOPPED']
+      const validStatuses = ['ACTIVE', 'INITIALIZING', 'NEEDS_REAUTH', 'STOPPED', 'DISCONNECTED']
       if (!validStatuses.includes(status)) {
         return NextResponse.json(
           { error: 'Invalid status value' },

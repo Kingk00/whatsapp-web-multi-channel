@@ -12,6 +12,8 @@ interface Channel {
   id: string
   name: string
   phone_number: string | null
+  status: string
+  color: string | null
 }
 
 interface SyncSettings {
@@ -74,13 +76,13 @@ export default function ChannelSettingsPage() {
     setRefreshKey((prev) => prev + 1)
   }
 
-  // Fetch channels for sync dropdown
+  // Fetch channels for sync section
   const { data: channels } = useQuery({
     queryKey: ['channels'],
     queryFn: async () => {
       const { data, error } = await supabase
         .from('channels')
-        .select('id, name, phone_number')
+        .select('id, name, phone_number, status, color')
         .order('name')
       if (error) throw error
       return data as Channel[]
@@ -138,19 +140,25 @@ export default function ChannelSettingsPage() {
     },
   })
 
-  // Sync contacts mutation (Whapi)
-  const [syncResult, setSyncResult] = useState<{ created: number; updated: number; skipped: number } | null>(null)
+  // Sync contacts mutation (Whapi) - per channel
+  const [syncResults, setSyncResults] = useState<Record<string, { created: number; updated: number; skipped: number }>>({})
+  const [syncingChannelId, setSyncingChannelId] = useState<string | null>(null)
   const syncContacts = useMutation({
     mutationFn: async (channelId: string) => {
+      setSyncingChannelId(channelId)
       const response = await fetch(`/api/channels/${channelId}/whapi-contacts/sync`, {
         method: 'POST',
       })
       if (!response.ok) throw new Error('Failed to sync contacts')
-      return response.json()
+      return { channelId, ...(await response.json()) }
     },
     onSuccess: (data) => {
-      setSyncResult(data.result)
+      setSyncResults((prev) => ({ ...prev, [data.channelId]: data.result }))
+      setSyncingChannelId(null)
       queryClient.invalidateQueries({ queryKey: ['workspace-sync-settings'] })
+    },
+    onError: () => {
+      setSyncingChannelId(null)
     },
   })
 
@@ -246,136 +254,169 @@ export default function ChannelSettingsPage() {
                 WhatsApp Contacts Sync
               </h2>
               <p className="text-sm text-gray-500 mb-4">
-                Sync contacts from WhatsApp to your workspace. Choose a channel to use for syncing contacts.
+                Sync contacts from any WhatsApp channel to your workspace.
                 All contacts will be shared across all channels in your workspace.
               </p>
 
-              <div className="space-y-4 bg-gray-50 rounded-lg p-4">
-                {/* Sync Channel Selector */}
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Sync Channel
-                  </label>
-                  <select
-                    value={syncSettings?.sync_channel_id || ''}
-                    onChange={(e) => updateSyncChannel.mutate(e.target.value || null)}
-                    disabled={updateSyncChannel.isPending || syncLoading}
-                    className="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-green-500 focus:outline-none focus:ring-1 focus:ring-green-500 disabled:bg-gray-100"
-                  >
-                    <option value="">None (Sync disabled)</option>
-                    {channels?.map((channel) => (
-                      <option key={channel.id} value={channel.id}>
-                        {channel.name} {channel.phone_number ? `(${channel.phone_number})` : ''}
-                      </option>
-                    ))}
-                  </select>
-                  <p className="mt-1 text-xs text-gray-500">
-                    Contacts will be synced from this channel&apos;s WhatsApp. New contacts you create will also be pushed to this channel.
-                  </p>
-                </div>
+              {/* Channel List for Sync */}
+              <div className="space-y-3">
+                {channels && channels.length > 0 ? (
+                  channels.map((channel) => {
+                    const isActive = channel.status === 'active'
+                    const isSyncing = syncingChannelId === channel.id
+                    const result = syncResults[channel.id]
 
-                {/* Google Contacts Token */}
-                {syncSettings?.sync_channel_id && (
-                  <div className="border-t pt-4 mt-4">
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
-                      Google Contacts Connection Token
-                    </label>
-                    {syncSettings?.google_contacts_token ? (
-                      <div className="flex items-center gap-2">
-                        <span className="text-sm text-green-600 flex items-center gap-1">
-                          <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-                          </svg>
-                          Token configured
-                        </span>
-                        <button
-                          onClick={() => setShowTokenInput(true)}
-                          className="text-sm text-gray-500 hover:text-gray-700 underline"
-                        >
-                          Update
-                        </button>
-                      </div>
-                    ) : (
-                      <button
-                        onClick={() => setShowTokenInput(true)}
-                        className="text-sm text-blue-600 hover:text-blue-700"
+                    return (
+                      <div
+                        key={channel.id}
+                        className="flex items-center justify-between bg-gray-50 rounded-lg p-4 border border-gray-200"
                       >
-                        + Add Google Contacts Token
-                      </button>
-                    )}
-                    {showTokenInput && (
-                      <div className="mt-2 space-y-2">
-                        <input
-                          type="text"
-                          value={googleToken}
-                          onChange={(e) => setGoogleToken(e.target.value)}
-                          placeholder="Paste your Google Contacts connection token here..."
-                          className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-green-500 focus:outline-none focus:ring-1 focus:ring-green-500"
-                        />
-                        <div className="flex gap-2">
-                          <Button
-                            onClick={() => updateGoogleToken.mutate(googleToken)}
-                            disabled={!googleToken.trim() || updateGoogleToken.isPending}
-                            size="sm"
+                        <div className="flex items-center gap-3">
+                          {/* Channel color indicator */}
+                          <div
+                            className="h-10 w-10 rounded-full flex items-center justify-center text-white font-medium text-sm"
+                            style={{ backgroundColor: channel.color || '#25D366' }}
                           >
-                            {updateGoogleToken.isPending ? 'Saving...' : 'Save Token'}
-                          </Button>
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            onClick={() => {
-                              setShowTokenInput(false)
-                              setGoogleToken('')
-                            }}
-                          >
-                            Cancel
-                          </Button>
+                            {channel.name.charAt(0).toUpperCase()}
+                          </div>
+                          <div>
+                            <div className="flex items-center gap-2">
+                              <span className="font-medium text-gray-900">{channel.name}</span>
+                              {/* Status indicator */}
+                              <span
+                                className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium ${
+                                  isActive
+                                    ? 'bg-green-100 text-green-700'
+                                    : 'bg-gray-100 text-gray-600'
+                                }`}
+                              >
+                                <span
+                                  className={`h-1.5 w-1.5 rounded-full ${
+                                    isActive ? 'bg-green-500' : 'bg-gray-400'
+                                  }`}
+                                />
+                                {channel.status}
+                              </span>
+                            </div>
+                            {channel.phone_number && (
+                              <span className="text-sm text-gray-500">{channel.phone_number}</span>
+                            )}
+                            {/* Sync result for this channel */}
+                            {result && (
+                              <div className="text-xs text-gray-600 mt-1">
+                                <span className="text-green-600 font-medium">{result.created} created</span>
+                                {' / '}
+                                <span className="text-blue-600 font-medium">{result.updated} updated</span>
+                                {' / '}
+                                <span className="text-gray-500">{result.skipped} skipped</span>
+                              </div>
+                            )}
+                          </div>
                         </div>
+
+                        {/* Sync button */}
+                        <Button
+                          onClick={() => syncContacts.mutate(channel.id)}
+                          disabled={!isActive || isSyncing || syncContacts.isPending}
+                          variant="outline"
+                          size="sm"
+                          title={!isActive ? 'Channel must be active to sync' : 'Sync contacts from this channel'}
+                        >
+                          {isSyncing ? (
+                            <>
+                              <svg className="animate-spin -ml-1 mr-2 h-4 w-4" fill="none" viewBox="0 0 24 24">
+                                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+                              </svg>
+                              Syncing...
+                            </>
+                          ) : (
+                            <>
+                              <svg className="h-4 w-4 mr-1.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                              </svg>
+                              Sync
+                            </>
+                          )}
+                        </Button>
                       </div>
-                    )}
-                    <p className="mt-1 text-xs text-gray-500">
-                      Get this token from Whapi&apos;s Google Contacts integration panel. Required for pushing new contacts to Google Contacts.
-                    </p>
+                    )
+                  })
+                ) : (
+                  <div className="text-center py-8 text-gray-500">
+                    <p>No channels available. Add a channel to sync contacts.</p>
                   </div>
                 )}
+              </div>
 
-                {/* Last Synced */}
-                {syncSettings?.last_synced_at && (
-                  <p className="text-sm text-gray-600">
-                    Last synced: {new Date(syncSettings.last_synced_at).toLocaleString()}
-                  </p>
-                )}
+              {/* Error */}
+              {syncContacts.isError && (
+                <p className="text-sm text-red-600 mt-3">
+                  {syncContacts.error?.message || 'An error occurred while syncing'}
+                </p>
+              )}
 
-                {/* Sync Button */}
-                {syncSettings?.sync_channel_id && (
-                  <div className="flex items-center gap-4">
-                    <Button
-                      onClick={() => syncContacts.mutate(syncSettings.sync_channel_id!)}
-                      disabled={syncContacts.isPending}
-                      variant="outline"
+              {/* Google Contacts Token - now separate section */}
+              <div className="mt-6 border-t pt-4">
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Google Contacts Connection Token (Optional)
+                </label>
+                {syncSettings?.google_contacts_token ? (
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm text-green-600 flex items-center gap-1">
+                      <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                      </svg>
+                      Token configured
+                    </span>
+                    <button
+                      onClick={() => setShowTokenInput(true)}
+                      className="text-sm text-gray-500 hover:text-gray-700 underline"
                     >
-                      {syncContacts.isPending ? 'Syncing...' : 'Sync Now'}
-                    </Button>
-
-                    {/* Sync Result */}
-                    {syncResult && (
-                      <div className="text-sm text-gray-600">
-                        <span className="text-green-600 font-medium">{syncResult.created} created</span>
-                        {' / '}
-                        <span className="text-blue-600 font-medium">{syncResult.updated} updated</span>
-                        {' / '}
-                        <span className="text-gray-500">{syncResult.skipped} skipped</span>
-                      </div>
-                    )}
+                      Update
+                    </button>
+                  </div>
+                ) : (
+                  <button
+                    onClick={() => setShowTokenInput(true)}
+                    className="text-sm text-blue-600 hover:text-blue-700"
+                  >
+                    + Add Google Contacts Token
+                  </button>
+                )}
+                {showTokenInput && (
+                  <div className="mt-2 space-y-2">
+                    <input
+                      type="text"
+                      value={googleToken}
+                      onChange={(e) => setGoogleToken(e.target.value)}
+                      placeholder="Paste your Google Contacts connection token here..."
+                      className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-green-500 focus:outline-none focus:ring-1 focus:ring-green-500"
+                    />
+                    <div className="flex gap-2">
+                      <Button
+                        onClick={() => updateGoogleToken.mutate(googleToken)}
+                        disabled={!googleToken.trim() || updateGoogleToken.isPending}
+                        size="sm"
+                      >
+                        {updateGoogleToken.isPending ? 'Saving...' : 'Save Token'}
+                      </Button>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => {
+                          setShowTokenInput(false)
+                          setGoogleToken('')
+                        }}
+                      >
+                        Cancel
+                      </Button>
+                    </div>
                   </div>
                 )}
-
-                {/* Error */}
-                {(updateSyncChannel.isError || syncContacts.isError) && (
-                  <p className="text-sm text-red-600">
-                    {updateSyncChannel.error?.message || syncContacts.error?.message || 'An error occurred'}
-                  </p>
-                )}
+                <p className="mt-1 text-xs text-gray-500">
+                  Get this token from Whapi&apos;s Google Contacts integration panel. Required for pushing new contacts to Google Contacts.
+                </p>
               </div>
             </div>
           )}

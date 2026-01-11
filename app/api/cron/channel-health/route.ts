@@ -106,8 +106,8 @@ export async function POST(request: NextRequest) {
             newStatus = 'active'
           } else if (data.status === 'qr') {
             newStatus = 'needs_reauth'
-          } else if (data.status === 'disconnected') {
-            newStatus = 'needs_reauth'
+          } else if (data.status === 'disconnected' || data.status === 'closed') {
+            newStatus = 'disconnected'
           } else {
             newStatus = 'degraded'
           }

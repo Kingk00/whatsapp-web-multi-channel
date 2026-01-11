@@ -1706,7 +1706,7 @@ function mapChannelStatus(status: string | undefined): string | null {
       return 'active'
     case 'disconnected':
     case 'closed':
-      return 'stopped'
+      return 'disconnected'
     case 'qr':
     case 'scan':
       return 'needs_reauth'
