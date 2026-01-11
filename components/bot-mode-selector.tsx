@@ -103,7 +103,7 @@ export function BotModeSelector({ channelId, isAdmin = false }: BotModeSelectorP
   const [providerId, setProviderId] = useState('')
   const [startTime, setStartTime] = useState('')
   const [endTime, setEndTime] = useState('')
-  const [timezone, setTimezone] = useState('America/Sao_Paulo')
+  const [timezone, setTimezone] = useState('Europe/London')
   const [autoPauseOnEscalate, setAutoPauseOnEscalate] = useState(true)
   const [replyDelayMs, setReplyDelayMs] = useState(1500)
 
@@ -128,7 +128,7 @@ export function BotModeSelector({ channelId, isAdmin = false }: BotModeSelectorP
       setProviderId(config.bloe_provider_id || '')
       setStartTime(formatMinutesToTime(config.auto_reply_start_minutes))
       setEndTime(formatMinutesToTime(config.auto_reply_end_minutes))
-      setTimezone(config.auto_reply_timezone || 'America/Sao_Paulo')
+      setTimezone(config.auto_reply_timezone || 'Europe/London')
       setAutoPauseOnEscalate(config.auto_pause_on_escalate ?? true)
       setReplyDelayMs(config.reply_delay_ms || 1500)
     }
