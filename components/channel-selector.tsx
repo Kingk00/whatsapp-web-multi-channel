@@ -33,7 +33,7 @@ export function ChannelSelector() {
   const dropdownRef = useRef<HTMLDivElement>(null)
   const supabase = createClient()
 
-  const { selectedChannelId, selectChannel } = useUIStore()
+  const { selectedChannelId, selectChannel, hiddenChannelIds, toggleChannelVisibility } = useUIStore()
 
   // Fetch channels
   const { data: channels = [], isLoading } = useQuery({
@@ -84,8 +84,16 @@ export function ChannelSelector() {
     return found?.unread_chats || 0
   }
 
-  // Total chats with unreads across all channels
-  const totalUnreadChats = unreadChatCounts.reduce((sum, c) => sum + c.unread_chats, 0)
+  // Check if a channel is visible (not hidden)
+  const isChannelVisible = (channelId: string) => !hiddenChannelIds.includes(channelId)
+
+  // Count of visible channels
+  const visibleChannelCount = channels.filter((c) => isChannelVisible(c.id)).length
+
+  // Total chats with unreads across visible channels only
+  const totalUnreadChats = unreadChatCounts
+    .filter((c) => isChannelVisible(c.channel_id))
+    .reduce((sum, c) => sum + c.unread_chats, 0)
 
   // Close dropdown when clicking outside
   useEffect(() => {
@@ -105,6 +113,7 @@ export function ChannelSelector() {
   // Get selected channel info
   const selectedChannel = channels.find((c) => c.id === selectedChannelId)
   const displayName = selectedChannel?.name || 'Unified Inbox'
+  const hiddenCount = channels.length - visibleChannelCount
 
   return (
     <div className="relative" ref={dropdownRef}>
@@ -184,9 +193,13 @@ export function ChannelSelector() {
                 />
               </svg>
             </div>
-            <div>
+            <div className="flex-1">
               <p className="font-medium text-gray-900">Unified Inbox</p>
-              <p className="text-xs text-gray-500">All channels</p>
+              <p className="text-xs text-gray-500">
+                {hiddenCount > 0
+                  ? `${visibleChannelCount} of ${channels.length} channels`
+                  : 'All channels'}
+              </p>
             </div>
           </button>
 
@@ -201,53 +214,95 @@ export function ChannelSelector() {
               No channels connected
             </div>
           ) : (
-            channels.map((channel) => (
-              <button
-                key={channel.id}
-                onClick={() => {
-                  selectChannel(channel.id)
-                  setIsOpen(false)
-                }}
-                className={cn(
-                  'flex w-full items-center gap-3 px-4 py-2 text-left hover:bg-gray-50',
-                  selectedChannelId === channel.id && 'bg-green-50'
-                )}
-              >
+            channels.map((channel) => {
+              const visible = isChannelVisible(channel.id)
+              return (
                 <div
-                  className="flex h-8 w-8 items-center justify-center rounded-full text-white"
-                  style={{ backgroundColor: channel.color || '#10b981' }}
+                  key={channel.id}
+                  className={cn(
+                    'flex w-full items-center gap-3 px-4 py-2 hover:bg-gray-50',
+                    selectedChannelId === channel.id && 'bg-green-50'
+                  )}
                 >
-                  {channel.name.charAt(0).toUpperCase()}
+                  {/* Checkbox for unified inbox visibility */}
+                  {!selectedChannelId && (
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        toggleChannelVisibility(channel.id)
+                      }}
+                      className={cn(
+                        'flex h-5 w-5 flex-shrink-0 items-center justify-center rounded border-2 transition-colors',
+                        visible
+                          ? 'border-green-500 bg-green-500 text-white'
+                          : 'border-gray-300 bg-white hover:border-gray-400'
+                      )}
+                      title={visible ? 'Hide from inbox' : 'Show in inbox'}
+                    >
+                      {visible && (
+                        <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                        </svg>
+                      )}
+                    </button>
+                  )}
+
+                  {/* Channel button */}
+                  <button
+                    onClick={() => {
+                      selectChannel(channel.id)
+                      setIsOpen(false)
+                    }}
+                    className="flex flex-1 items-center gap-3 text-left min-w-0"
+                  >
+                    <div
+                      className={cn(
+                        'flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full text-white transition-opacity',
+                        !selectedChannelId && !visible && 'opacity-50'
+                      )}
+                      style={{ backgroundColor: channel.color || '#10b981' }}
+                    >
+                      {channel.name.charAt(0).toUpperCase()}
+                    </div>
+                    <div className={cn(
+                      'flex-1 min-w-0 transition-opacity',
+                      !selectedChannelId && !visible && 'opacity-50'
+                    )}>
+                      <p className="font-medium text-gray-900 truncate">
+                        {channel.name}
+                      </p>
+                      <p className="text-xs text-gray-500 truncate">
+                        {channel.phone_number || 'No phone number'}
+                      </p>
+                    </div>
+                  </button>
+
+                  {/* Unread chats badge */}
+                  {getUnreadChats(channel.id) > 0 ? (
+                    <span className={cn(
+                      'flex h-5 min-w-[20px] items-center justify-center rounded-full bg-green-500 px-1.5 text-xs font-medium text-white transition-opacity',
+                      !selectedChannelId && !visible && 'opacity-50'
+                    )}>
+                      {getUnreadChats(channel.id) > 99 ? '99+' : getUnreadChats(channel.id)}
+                    </span>
+                  ) : (
+                    /* Show status dot only when no unreads */
+                    <div
+                      className={cn(
+                        'h-2 w-2 rounded-full transition-opacity',
+                        channel.status === 'active' && 'bg-green-500',
+                        channel.status === 'needs_reauth' && 'bg-yellow-500',
+                        channel.status === 'sync_error' && 'bg-red-500',
+                        !['active', 'needs_reauth', 'sync_error'].includes(
+                          channel.status
+                        ) && 'bg-gray-400',
+                        !selectedChannelId && !visible && 'opacity-50'
+                      )}
+                    />
+                  )}
                 </div>
-                <div className="flex-1 min-w-0">
-                  <p className="font-medium text-gray-900 truncate">
-                    {channel.name}
-                  </p>
-                  <p className="text-xs text-gray-500 truncate">
-                    {channel.phone_number || 'No phone number'}
-                  </p>
-                </div>
-                {/* Unread chats badge */}
-                {getUnreadChats(channel.id) > 0 ? (
-                  <span className="flex h-5 min-w-[20px] items-center justify-center rounded-full bg-green-500 px-1.5 text-xs font-medium text-white">
-                    {getUnreadChats(channel.id) > 99 ? '99+' : getUnreadChats(channel.id)}
-                  </span>
-                ) : (
-                  /* Show status dot only when no unreads */
-                  <div
-                    className={cn(
-                      'h-2 w-2 rounded-full',
-                      channel.status === 'active' && 'bg-green-500',
-                      channel.status === 'needs_reauth' && 'bg-yellow-500',
-                      channel.status === 'sync_error' && 'bg-red-500',
-                      !['active', 'needs_reauth', 'sync_error'].includes(
-                        channel.status
-                      ) && 'bg-gray-400'
-                    )}
-                  />
-                )}
-              </button>
-            ))
+              )
+            })
           )}
         </div>
       )}

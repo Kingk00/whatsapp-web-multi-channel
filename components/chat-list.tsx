@@ -80,7 +80,7 @@ export function ChatList({
   filter = 'all',
   onSelectChat,
 }: ChatListProps) {
-  const { selectedChatId, selectChat } = useUIStore()
+  const { selectedChatId, selectChat, hiddenChannelIds } = useUIStore()
 
   // Use custom handler or default
   const handleSelectChat = onSelectChat || selectChat
@@ -209,6 +209,11 @@ export function ChatList({
   // Filter chats based on search query and filter type
   const filterChats = (chats: Chat[]) => {
     let filtered = chats
+
+    // Filter out hidden channels in unified inbox mode
+    if (!channelId && hiddenChannelIds.length > 0) {
+      filtered = filtered.filter((chat) => !hiddenChannelIds.includes(chat.channel_id))
+    }
 
     // Apply filter type (unread/groups)
     if (filter === 'unread') {

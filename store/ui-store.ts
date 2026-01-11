@@ -37,6 +37,9 @@ export interface UIState {
   selectedChatId: string | null
   selectedChannelId: string | null // null = Unified Inbox
 
+  // Hidden channels in unified inbox
+  hiddenChannelIds: string[]
+
   // Draft messages per chat
   drafts: Record<string, Draft>
 
@@ -60,6 +63,10 @@ export interface UIActions {
   // Selection actions
   selectChat: (chatId: string | null, channelId?: string) => void
   selectChannel: (channelId: string | null) => void
+
+  // Channel visibility actions (for unified inbox)
+  toggleChannelVisibility: (channelId: string) => void
+  isChannelVisible: (channelId: string) => boolean
 
   // Draft actions
   setDraft: (chatId: string, text: string) => void
@@ -94,6 +101,7 @@ export interface UIActions {
 const initialState: UIState = {
   selectedChatId: null,
   selectedChannelId: null,
+  hiddenChannelIds: [],
   drafts: {},
   panes: [
     {
@@ -147,6 +155,22 @@ export const useUIStore = create<UIState & UIActions>()(
               : pane
           ),
         }))
+      },
+
+      // Channel visibility actions
+      toggleChannelVisibility: (channelId) => {
+        set((state) => {
+          const isHidden = state.hiddenChannelIds.includes(channelId)
+          return {
+            hiddenChannelIds: isHidden
+              ? state.hiddenChannelIds.filter((id) => id !== channelId)
+              : [...state.hiddenChannelIds, channelId],
+          }
+        })
+      },
+
+      isChannelVisible: (channelId) => {
+        return !get().hiddenChannelIds.includes(channelId)
       },
 
       // Draft actions
@@ -288,6 +312,7 @@ export const useUIStore = create<UIState & UIActions>()(
       partialize: (state) => ({
         // Only persist these fields
         selectedChannelId: state.selectedChannelId,
+        hiddenChannelIds: state.hiddenChannelIds,
         drafts: state.drafts,
         panes: state.panes,
         activePaneId: state.activePaneId,
