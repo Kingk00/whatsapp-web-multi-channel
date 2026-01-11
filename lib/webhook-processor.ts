@@ -16,6 +16,7 @@
 import { SupabaseClient } from '@supabase/supabase-js'
 import { createServiceRoleClient } from '@/lib/supabase/server'
 import { getOrCreateChat, updateChatLastMessage, markChatAsRead } from '@/lib/chat-helpers'
+import { processThroughBotIfConfigured } from '@/lib/bot-router'
 
 // ============================================================================
 // Types
@@ -340,6 +341,31 @@ async function processSingleMessage(
     // (from phone, WhatsApp web, or another user in the system)
     if (direction === 'outbound') {
       await markChatAsRead(supabase, chat.id)
+    }
+
+    // Route inbound text messages through bot if configured
+    // Bot processing happens asynchronously after message is saved
+    if (direction === 'inbound' && messageType === 'text' && textContent) {
+      try {
+        const botResult = await processThroughBotIfConfigured(
+          supabase,
+          channel.id,
+          channel.workspace_id,
+          chat.id,
+          waMessageId,
+          textContent,
+          messageType,
+          senderWaId || waChatId,  // contactId
+          timestamp
+        )
+
+        if (botResult.handled) {
+          console.log('[Webhook Processor] Bot processed message:', botResult.response?.action || 'handled')
+        }
+      } catch (botError) {
+        // Bot processing errors should not fail the webhook
+        console.error('[Webhook Processor] Bot processing error (non-fatal):', botError)
+      }
     }
 
     return {

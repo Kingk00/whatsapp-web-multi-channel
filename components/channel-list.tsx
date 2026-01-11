@@ -3,6 +3,7 @@
 import { useEffect, useState, useRef } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { ChannelStatusBadge } from '@/components/channel-status-badge'
+import { BotModeSelector } from '@/components/bot-mode-selector'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { useToast } from '@/components/ui/toast'
@@ -29,13 +30,32 @@ export function ChannelList({ onChannelSelect }: ChannelListProps) {
   const [editName, setEditName] = useState('')
   const [saving, setSaving] = useState(false)
   const [copiedId, setCopiedId] = useState<string | null>(null)
+  const [isAdmin, setIsAdmin] = useState(false)
   const inputRef = useRef<HTMLInputElement>(null)
   const supabase = createClient()
   const { addToast } = useToast()
 
   useEffect(() => {
     fetchChannels()
+    checkUserRole()
   }, [])
+
+  const checkUserRole = async () => {
+    try {
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) return
+
+      const { data: profile } = await supabase
+        .from('profiles')
+        .select('role')
+        .eq('user_id', user.id)
+        .single()
+
+      setIsAdmin(['main_admin', 'admin'].includes(profile?.role || ''))
+    } catch {
+      // Ignore errors
+    }
+  }
 
   useEffect(() => {
     if (editingId && inputRef.current) {
@@ -363,6 +383,9 @@ export function ChannelList({ onChannelSelect }: ChannelListProps) {
                   Click "Configure Webhook" to automatically set up message receiving in Whapi.cloud
                 </p>
               </div>
+
+              {/* Bot Configuration */}
+              <BotModeSelector channelId={channel.id} isAdmin={isAdmin} />
             </div>
             {editingId !== channel.id && (
               <div className="flex items-center gap-1">

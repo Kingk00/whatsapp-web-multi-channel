@@ -167,30 +167,30 @@ export default function InboxPage() {
             )}
           >
             {/* Header with channel selector */}
-            <header className="flex h-16 items-center justify-between border-b border-border px-4">
+            <header className="flex min-h-[64px] items-center justify-between border-b border-border px-3 md:px-4 py-2">
               <ChannelSelector />
 
               {/* Desktop only: Settings and logout */}
               <div className="hidden md:flex items-center gap-1">
                 <button
                   onClick={() => router.push('/settings/channels')}
-                  className="btn-icon"
+                  className="btn-icon touch-target"
                   title="Settings"
                 >
-                  <SettingsIcon className="h-5 w-5" />
+                  <SettingsIcon className="h-6 w-6" />
                 </button>
                 <button
                   onClick={signOut}
-                  className="btn-icon hover:text-destructive"
+                  className="btn-icon hover:text-destructive touch-target"
                   title="Logout"
                 >
-                  <LogoutIcon className="h-5 w-5" />
+                  <LogoutIcon className="h-6 w-6" />
                 </button>
               </div>
             </header>
 
             {/* Search bar */}
-            <div className="p-3 space-y-3">
+            <div className="p-3 md:p-4 space-y-3">
               <div className="relative">
                 <input
                   ref={searchInputRef}
@@ -200,28 +200,28 @@ export default function InboxPage() {
                   onChange={(e) => setSearchQuery(e.target.value)}
                   className="search-input"
                 />
-                <SearchIcon className="absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                <SearchIcon className="absolute left-3.5 top-1/2 -translate-y-1/2 h-5 w-5 text-muted-foreground" />
                 {searchQuery && (
                   <button
                     onClick={() => setSearchQuery('')}
-                    className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                    className="absolute right-2 top-1/2 -translate-y-1/2 p-1.5 text-muted-foreground hover:text-foreground active:bg-muted rounded-full"
                   >
-                    <XIcon className="h-4 w-4" />
+                    <XIcon className="h-5 w-5" />
                   </button>
                 )}
               </div>
 
-              {/* Filter tabs */}
-              <div className="flex gap-1">
+              {/* Filter tabs - 44px minimum touch targets for mobile */}
+              <div className="flex gap-1.5">
                 {(['all', 'unread', 'groups'] as const).map((filter) => (
                   <button
                     key={filter}
                     onClick={() => setChatFilter(filter)}
                     className={cn(
-                      'flex-1 py-1.5 text-sm font-medium rounded-lg transition-colors',
+                      'flex-1 min-h-[44px] py-2.5 text-sm font-medium rounded-xl transition-colors active:scale-[0.98]',
                       chatFilter === filter
-                        ? 'bg-whatsapp-500 text-white'
-                        : 'text-muted-foreground hover:bg-muted'
+                        ? 'bg-whatsapp-500 text-white shadow-sm'
+                        : 'text-muted-foreground hover:bg-muted active:bg-muted/80'
                     )}
                   >
                     {filter.charAt(0).toUpperCase() + filter.slice(1)}

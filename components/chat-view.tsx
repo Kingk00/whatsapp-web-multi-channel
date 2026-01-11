@@ -433,16 +433,16 @@ function ChatHeader({
   const lastSeenText = getLastSeenText()
 
   return (
-    <header className="flex h-16 items-center justify-between border-b border-border bg-card px-4">
-      <div className="flex items-center gap-3">
+    <header className="flex min-h-[64px] items-center justify-between border-b border-border bg-card px-3 md:px-4 py-2">
+      <div className="flex items-center gap-2 md:gap-3">
         {/* Back button (mobile only) */}
         {onBack && (
           <button
             onClick={onBack}
-            className="btn-icon -ml-2"
+            className="btn-icon -ml-1 touch-target"
             aria-label="Back to chats"
           >
-            <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <svg className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
             </svg>
           </button>
@@ -498,15 +498,15 @@ function ChatHeader({
       </div>
 
       {/* Actions */}
-      <div className="flex items-center gap-2">
+      <div className="flex items-center">
         <button
           onClick={toggleDetailsPanel}
-          className="rounded-full p-2 text-gray-500 hover:bg-gray-200"
+          className="btn-icon touch-target"
           title="Contact info"
         >
           <svg
             xmlns="http://www.w3.org/2000/svg"
-            className="h-5 w-5"
+            className="h-6 w-6"
             fill="none"
             viewBox="0 0 24 24"
             stroke="currentColor"
@@ -1236,6 +1236,18 @@ interface QuickReply {
   attachments?: QuickReplyAttachment[]
 }
 
+interface BotDraft {
+  id: string
+  chat_id: string
+  learning_log_id: string | null
+  draft_text: string
+  intent: string | null
+  confidence: number | null
+  source_message_id: string
+  created_at: string
+  expires_at: string
+}
+
 function MessageComposer({
   chatId,
   channelId,
@@ -1254,12 +1266,70 @@ function MessageComposer({
   const [selectedQuickReplyIndex, setSelectedQuickReplyIndex] = useState(0)
   const [quickReplyAttachments, setQuickReplyAttachments] = useState<QuickReplyAttachment[]>([])
   const [quickReplyViewOnce, setQuickReplyViewOnce] = useState(false)
+  const [appliedBotDraft, setAppliedBotDraft] = useState<BotDraft | null>(null)
   const inputRef = useRef<HTMLTextAreaElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const quickReplyRef = useRef<HTMLDivElement>(null)
   const queryClient = useQueryClient()
   const { getDraft, setDraft, clearDraft } = useUIStore()
   const { addToast } = useToast()
+
+  // Fetch bot draft for this chat (semi mode)
+  const { data: botDraftData, refetch: refetchBotDraft } = useQuery({
+    queryKey: ['bot-draft', chatId],
+    queryFn: async () => {
+      const response = await fetch(`/api/chats/${chatId}/draft`)
+      if (!response.ok) return { draft: null }
+      return response.json()
+    },
+    refetchInterval: 10000, // Check every 10 seconds for new drafts
+    staleTime: 5000,
+  })
+
+  const botDraft: BotDraft | null = botDraftData?.draft || null
+
+  // Dismiss bot draft mutation
+  const dismissBotDraft = useMutation({
+    mutationFn: async () => {
+      const response = await fetch(`/api/chats/${chatId}/draft`, {
+        method: 'DELETE',
+      })
+      if (!response.ok) throw new Error('Failed to dismiss draft')
+      return response.json()
+    },
+    onSuccess: () => {
+      refetchBotDraft()
+      addToast('Draft dismissed', 'info')
+    },
+  })
+
+  // Apply bot draft to composer
+  const applyBotDraft = () => {
+    if (botDraft) {
+      setText(botDraft.draft_text)
+      setAppliedBotDraft(botDraft)
+      inputRef.current?.focus()
+    }
+  }
+
+  // Log draft send for learning
+  const logDraftSend = useMutation({
+    mutationFn: async (finalText: string) => {
+      const response = await fetch(`/api/chats/${chatId}/draft`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ final_text: finalText }),
+      })
+      if (!response.ok) throw new Error('Failed to log draft')
+      return response.json()
+    },
+    onSuccess: (data) => {
+      if (data.was_edited) {
+        addToast('Draft edited and sent - thank you for training the bot!', 'success')
+      }
+      refetchBotDraft()
+    },
+  })
 
   // Fetch quick replies for this channel
   const { data: quickRepliesData } = useQuery({
@@ -1540,6 +1610,12 @@ function MessageComposer({
       setText('')
       clearDraft(targetChatId)
 
+      // If we're sending a bot draft, log it for learning
+      if (appliedBotDraft) {
+        logDraftSend.mutate(trimmedText)
+        setAppliedBotDraft(null)
+      }
+
       sendTextMutation.mutate({ messageText: trimmedText, targetChatId })
     }
   }
@@ -1636,11 +1712,86 @@ function MessageComposer({
   const canSend = selectedFile || text.trim() || quickReplyAttachments.length > 0
 
   return (
-    <div className="border-t border-border bg-card p-3 md:p-4">
+    <div className="border-t border-border bg-card px-3 py-3 md:px-4 md:py-4 pb-safe">
+      {/* Bot Draft Banner */}
+      {botDraft && !appliedBotDraft && (
+        <div className="mb-3 p-3 rounded-lg bg-gradient-to-r from-purple-50 to-blue-50 border border-purple-200 animate-in slide-in-from-top-2 duration-300">
+          <div className="flex items-start justify-between gap-3">
+            <div className="flex items-start gap-2 min-w-0 flex-1">
+              <div className="p-1.5 rounded-full bg-purple-100 flex-shrink-0 mt-0.5">
+                <svg className="h-4 w-4 text-purple-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
+                </svg>
+              </div>
+              <div className="min-w-0 flex-1">
+                <div className="flex items-center gap-2 mb-1">
+                  <span className="text-xs font-semibold text-purple-700">Bot Suggestion</span>
+                  {botDraft.confidence && (
+                    <span className="text-xs text-purple-500">
+                      {Math.round(botDraft.confidence * 100)}% confident
+                    </span>
+                  )}
+                  {botDraft.intent && (
+                    <span className="text-xs px-1.5 py-0.5 rounded bg-purple-100 text-purple-600">
+                      {botDraft.intent}
+                    </span>
+                  )}
+                </div>
+                <p className="text-sm text-gray-700 line-clamp-2">
+                  {botDraft.draft_text}
+                </p>
+              </div>
+            </div>
+            <div className="flex items-center gap-2 flex-shrink-0">
+              <button
+                onClick={applyBotDraft}
+                className="px-3 py-1.5 text-xs font-medium text-white bg-purple-600 rounded-lg hover:bg-purple-700 transition-colors flex items-center gap-1"
+              >
+                <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                </svg>
+                Apply
+              </button>
+              <button
+                onClick={() => dismissBotDraft.mutate()}
+                disabled={dismissBotDraft.isPending}
+                className="p-1.5 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-lg transition-colors"
+                title="Dismiss"
+              >
+                <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Draft Applied Banner */}
+      {appliedBotDraft && (
+        <div className="mb-3 p-2 rounded-lg bg-green-50 border border-green-200 flex items-center gap-2">
+          <svg className="h-4 w-4 text-green-600 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+          </svg>
+          <span className="text-xs text-green-700">
+            Draft applied - edit if needed, then send
+          </span>
+          <button
+            onClick={() => {
+              setAppliedBotDraft(null)
+              setText('')
+            }}
+            className="ml-auto text-xs text-green-600 hover:text-green-800 underline"
+          >
+            Clear
+          </button>
+        </div>
+      )}
+
       {/* Channel indicator */}
-      <div className="mb-2 flex items-center gap-2 text-xs text-muted-foreground">
+      <div className="mb-2.5 flex items-center gap-2 text-xs text-muted-foreground">
         <div
-          className="h-2 w-2 rounded-full animate-pulse"
+          className="h-2.5 w-2.5 rounded-full animate-pulse"
           style={{ backgroundColor: channelColor || '#25D366' }}
         />
         <span>Sending as this channel</span>
@@ -1826,12 +1977,12 @@ function MessageComposer({
         </div>
       )}
 
-      {/* Input area */}
-      <div className="flex items-end gap-2">
+      {/* Input area - improved spacing for mobile */}
+      <div className="flex items-end gap-2 md:gap-3">
         {/* File attachment button */}
         <button
           onClick={() => fileInputRef.current?.click()}
-          className="btn-icon flex-shrink-0"
+          className="btn-icon flex-shrink-0 touch-target"
           title="Attach file"
           disabled={isPending}
         >
@@ -1847,8 +1998,8 @@ function MessageComposer({
           accept="image/*,video/*,audio/*,.pdf,.doc,.docx,.xls,.xlsx,.txt"
         />
 
-        {/* Emoji button (placeholder) */}
-        <button className="btn-icon flex-shrink-0 hidden md:flex">
+        {/* Emoji button (placeholder) - hidden on mobile to save space */}
+        <button className="btn-icon flex-shrink-0 hidden md:flex touch-target">
           <svg className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14.828 14.828a4 4 0 01-5.656 0M9 10h.01M15 10h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
           </svg>
@@ -1912,9 +2063,9 @@ function MessageComposer({
             value={text}
             onChange={handleTextChange}
             onKeyDown={handleKeyDown}
-            placeholder={selectedFile ? "Add a caption..." : "Type a message or / for quick replies"}
+            placeholder={selectedFile ? "Add a caption..." : "Type a message..."}
             className={cn(
-              "w-full resize-none rounded-full bg-muted/50 px-4 py-2.5 text-[15px]",
+              "w-full resize-none rounded-2xl bg-muted/50 px-4 py-3 text-[15px] min-h-[44px]",
               "placeholder:text-muted-foreground/60",
               "focus:outline-none focus:ring-2 focus:ring-whatsapp-500/50 focus:bg-muted",
               "transition-all duration-fast"
@@ -1924,12 +2075,12 @@ function MessageComposer({
           />
         </div>
 
-        {/* Send button */}
+        {/* Send button - 44px touch target */}
         <button
           onClick={handleSend}
           disabled={!canSend || isPending}
           className={cn(
-            'flex-shrink-0 rounded-full p-2.5 transition-all duration-fast touch-target',
+            'flex-shrink-0 rounded-full w-11 h-11 flex items-center justify-center transition-all duration-fast touch-target',
             canSend && !isPending
               ? 'bg-gradient-to-r from-whatsapp-500 to-whatsapp-teal text-white shadow-sm hover:shadow-md active:scale-95'
               : 'text-muted-foreground bg-muted/30'

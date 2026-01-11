@@ -26,19 +26,19 @@ export function BottomNavigation({
       )}
       style={{ paddingBottom: 'env(safe-area-inset-bottom)' }}
     >
-      <div className="flex items-center justify-around h-16">
+      <div className="flex items-center justify-around min-h-[60px]">
         {/* Chats */}
         <button
           onClick={() => onItemClick('chats')}
           className={cn(
-            'flex flex-col items-center justify-center flex-1 h-full gap-1 transition-colors tap-transparent',
+            'flex flex-col items-center justify-center flex-1 min-h-[60px] gap-1 transition-colors tap-transparent active:bg-muted/30',
             activeItem === 'chats'
               ? 'text-whatsapp-500'
               : 'text-muted-foreground'
           )}
         >
           <div className="relative">
-            <ChatIcon className="w-6 h-6" />
+            <ChatIcon className="w-7 h-7" />
             {unreadCount > 0 && (
               <Badge
                 count={unreadCount}
@@ -47,9 +47,9 @@ export function BottomNavigation({
               />
             )}
           </div>
-          <span className="text-xs font-medium">Chats</span>
+          <span className="text-[11px] font-medium">Chats</span>
           {activeItem === 'chats' && (
-            <span className="absolute bottom-1 w-1 h-1 rounded-full bg-whatsapp-500" />
+            <span className="absolute bottom-1 w-1.5 h-1.5 rounded-full bg-whatsapp-500" />
           )}
         </button>
 
@@ -57,16 +57,16 @@ export function BottomNavigation({
         <button
           onClick={() => onItemClick('channels')}
           className={cn(
-            'flex flex-col items-center justify-center flex-1 h-full gap-1 transition-colors tap-transparent relative',
+            'flex flex-col items-center justify-center flex-1 min-h-[60px] gap-1 transition-colors tap-transparent relative active:bg-muted/30',
             activeItem === 'channels'
               ? 'text-whatsapp-500'
               : 'text-muted-foreground'
           )}
         >
-          <ChannelIcon className="w-6 h-6" />
-          <span className="text-xs font-medium">Channels</span>
+          <ChannelIcon className="w-7 h-7" />
+          <span className="text-[11px] font-medium">Channels</span>
           {activeItem === 'channels' && (
-            <span className="absolute bottom-1 w-1 h-1 rounded-full bg-whatsapp-500" />
+            <span className="absolute bottom-1 w-1.5 h-1.5 rounded-full bg-whatsapp-500" />
           )}
         </button>
 
@@ -74,16 +74,16 @@ export function BottomNavigation({
         <button
           onClick={() => onItemClick('settings')}
           className={cn(
-            'flex flex-col items-center justify-center flex-1 h-full gap-1 transition-colors tap-transparent relative',
+            'flex flex-col items-center justify-center flex-1 min-h-[60px] gap-1 transition-colors tap-transparent relative active:bg-muted/30',
             activeItem === 'settings'
               ? 'text-whatsapp-500'
               : 'text-muted-foreground'
           )}
         >
-          <SettingsIcon className="w-6 h-6" />
-          <span className="text-xs font-medium">Settings</span>
+          <SettingsIcon className="w-7 h-7" />
+          <span className="text-[11px] font-medium">Settings</span>
           {activeItem === 'settings' && (
-            <span className="absolute bottom-1 w-1 h-1 rounded-full bg-whatsapp-500" />
+            <span className="absolute bottom-1 w-1.5 h-1.5 rounded-full bg-whatsapp-500" />
           )}
         </button>
       </div>

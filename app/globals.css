@@ -354,19 +354,19 @@
    ============================================================================ */
 
 @layer components {
-  /* Search input pill style */
+  /* Search input pill style - 44px height for mobile touch */
   .search-input {
-    @apply w-full h-10 px-4 pl-10 bg-muted/50 border-0 rounded-full text-sm placeholder:text-muted-foreground focus:bg-muted focus:ring-0 focus:outline-none transition-colors;
+    @apply w-full h-11 px-4 pl-10 bg-muted/50 border-0 rounded-full text-sm placeholder:text-muted-foreground focus:bg-muted focus:ring-0 focus:outline-none transition-colors;
   }
 
-  /* Primary button with gradient */
+  /* Primary button with gradient - 44px height for mobile touch */
   .btn-primary {
-    @apply inline-flex items-center justify-center h-10 px-4 bg-gradient-to-r from-whatsapp-500 to-whatsapp-teal text-white font-medium rounded-lg shadow-sm hover:shadow-md active:scale-[0.98] transition-all duration-fast;
+    @apply inline-flex items-center justify-center h-11 px-5 bg-gradient-to-r from-whatsapp-500 to-whatsapp-teal text-white font-medium rounded-lg shadow-sm hover:shadow-md active:scale-[0.98] transition-all duration-fast;
   }
 
-  /* Icon button */
+  /* Icon button - 44px for proper mobile touch targets */
   .btn-icon {
-    @apply inline-flex items-center justify-center w-10 h-10 rounded-full text-muted-foreground hover:bg-muted active:bg-muted/80 transition-colors tap-transparent;
+    @apply inline-flex items-center justify-center w-11 h-11 rounded-full text-muted-foreground hover:bg-muted active:bg-muted/80 transition-colors tap-transparent;
   }
 }
 
