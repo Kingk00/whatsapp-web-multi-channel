@@ -63,7 +63,29 @@ export default function InboxPage() {
     },
   })
 
-  const labels: Label[] = labelsData?.labels || []
+  // Fetch chats to determine which labels are in use
+  const { data: chatsData } = useQuery({
+    queryKey: queryKeys.chats.list(selectedChannelId || undefined),
+    queryFn: async () => {
+      const params = new URLSearchParams()
+      if (selectedChannelId) params.set('channel_id', selectedChannelId)
+      params.set('limit', '100')
+      params.set('archived', 'exclude')
+      const response = await fetch(`/api/chats?${params.toString()}`)
+      if (!response.ok) throw new Error('Failed to fetch chats')
+      return response.json()
+    },
+  })
+
+  // Filter labels to only show those that have at least one chat assigned
+  const allLabels: Label[] = labelsData?.labels || []
+  const chats = chatsData?.chats || []
+
+  const labels = allLabels.filter((label) =>
+    chats.some((chat: { labels?: Array<{ id: string }> }) =>
+      chat.labels?.some((chatLabel) => chatLabel.id === label.id)
+    )
+  )
 
   // Handle label selection - clears when clicking the same label
   const handleLabelClick = useCallback((labelId: string) => {
