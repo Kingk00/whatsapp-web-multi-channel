@@ -86,7 +86,7 @@ export async function PUT(
     const { id } = await params
 
     // Authenticate user and require admin + channel access
-    await validateApiAuth({ requireAdmin: true, channelId: id })
+    await validateApiAuth({ requireMainAdmin: true, channelId: id })
 
     const body = await request.json()
     const {
@@ -204,7 +204,7 @@ export async function DELETE(
     const { id } = await params
 
     // Authenticate user and require admin + channel access
-    await validateApiAuth({ requireAdmin: true, channelId: id })
+    await validateApiAuth({ requireMainAdmin: true, channelId: id })
 
     const supabase = createServiceRoleClient()
 
