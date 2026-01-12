@@ -219,10 +219,22 @@ async function syncWorkspaceContacts(
 
   const contactIds = (allContacts || []).map(c => c.id)
 
+  // Normalize name for duplicate detection (lowercase, remove extra spaces/special chars)
+  const normalizeName = (name: string): string => {
+    return name
+      .toLowerCase()
+      .replace(/[^a-z0-9\s]/g, '') // Remove special characters
+      .replace(/\s+/g, ' ')         // Collapse multiple spaces
+      .trim()
+  }
+
   // Build a set of normalized display names for duplicate detection
   const existingDisplayNames = new Set<string>(
-    (allContacts || []).map(c => c.display_name?.toLowerCase().trim()).filter(Boolean)
+    (allContacts || []).map(c => c.display_name ? normalizeName(c.display_name) : '').filter(Boolean)
   )
+
+  // Also build a set of phone number suffixes (last 7 digits) for fuzzy phone matching
+  const existingPhoneSuffixes = new Set<string>()
 
   const existingPhoneHashes = new Set<string>()
   if (contactIds.length > 0) {
@@ -230,11 +242,18 @@ async function syncWorkspaceContacts(
       const batch = contactIds.slice(i, i + 500)
       const { data: phoneLookups } = await supabase
         .from('contact_phone_lookup')
-        .select('phone_e164_hash')
+        .select('phone_e164_hash, phone_e164')
         .in('contact_id', batch)
 
       for (const p of phoneLookups || []) {
         existingPhoneHashes.add(p.phone_e164_hash)
+        // Also store last 7 digits for fuzzy matching
+        if (p.phone_e164) {
+          const digits = p.phone_e164.replace(/\D/g, '')
+          if (digits.length >= 7) {
+            existingPhoneSuffixes.add(digits.slice(-7))
+          }
+        }
       }
     }
   }
@@ -293,8 +312,22 @@ async function syncWorkspaceContacts(
         continue
       }
 
-      // Also check by display name to catch duplicates with different phone formats
-      const normalizedName = displayName.toLowerCase().trim()
+      // Check by phone suffix (last 7 digits) for fuzzy phone matching
+      const phoneSuffixes = phoneNumbers
+        .map(p => {
+          const digits = (p.normalized || p.number).replace(/\D/g, '')
+          return digits.length >= 7 ? digits.slice(-7) : null
+        })
+        .filter(Boolean) as string[]
+
+      const hasExistingPhoneSuffix = phoneSuffixes.some(s => existingPhoneSuffixes.has(s))
+      if (hasExistingPhoneSuffix) {
+        skippedPull++
+        continue
+      }
+
+      // Also check by normalized display name to catch duplicates with different phone formats
+      const normalizedName = normalizeName(displayName)
       if (existingDisplayNames.has(normalizedName)) {
         skippedPull++
         continue
@@ -331,6 +364,10 @@ async function syncWorkspaceContacts(
 
       existingByResourceName.set(contact.resourceName, { id: contactId, display_name: displayName })
       existingDisplayNames.add(normalizedName)
+      // Add phone suffixes to prevent duplicates within same batch
+      for (const suffix of phoneSuffixes) {
+        existingPhoneSuffixes.add(suffix)
+      }
 
       if (contactsToCreate.length >= BATCH_SIZE) {
         const { error: batchError } = await supabase
