@@ -775,7 +775,7 @@ async function findDuplicates(
   // Find groups with more than one contact
   const duplicateGroups: DuplicateGroup[] = []
 
-  for (const [phone, group] of phoneMap.entries()) {
+  Array.from(phoneMap.entries()).forEach(([phone, group]) => {
     if (group.length > 1) {
       // Sort by created_at to keep the oldest
       group.sort((a, b) =>
@@ -806,7 +806,7 @@ async function findDuplicates(
         })
       }
     }
-  }
+  })
 
   return duplicateGroups
 }
