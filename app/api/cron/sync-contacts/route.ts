@@ -5,6 +5,7 @@ import { normalizePhoneNumber } from '@/lib/phone-utils'
 
 // Extend timeout for large contact lists
 export const maxDuration = 300 // 5 minutes
+export const dynamic = 'force-dynamic'
 
 const CRON_SECRET = process.env.CRON_SECRET
 const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID
