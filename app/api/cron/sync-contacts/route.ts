@@ -211,13 +211,18 @@ async function syncWorkspaceContacts(
     }
   }
 
-  // Pre-fetch all existing phone hashes for this workspace
+  // Pre-fetch all existing contacts for this workspace (for name + phone matching)
   const { data: allContacts } = await supabase
     .from('contacts')
-    .select('id')
+    .select('id, display_name')
     .eq('workspace_id', workspaceId)
 
   const contactIds = (allContacts || []).map(c => c.id)
+
+  // Build a set of normalized display names for duplicate detection
+  const existingDisplayNames = new Set<string>(
+    (allContacts || []).map(c => c.display_name?.toLowerCase().trim()).filter(Boolean)
+  )
 
   const existingPhoneHashes = new Set<string>()
   if (contactIds.length > 0) {
@@ -288,6 +293,13 @@ async function syncWorkspaceContacts(
         continue
       }
 
+      // Also check by display name to catch duplicates with different phone formats
+      const normalizedName = displayName.toLowerCase().trim()
+      if (existingDisplayNames.has(normalizedName)) {
+        skippedPull++
+        continue
+      }
+
       const contactId = crypto.randomUUID()
       contactsToCreate.push({
         id: contactId,
@@ -318,6 +330,7 @@ async function syncWorkspaceContacts(
       }
 
       existingByResourceName.set(contact.resourceName, { id: contactId, display_name: displayName })
+      existingDisplayNames.add(normalizedName)
 
       if (contactsToCreate.length >= BATCH_SIZE) {
         const { error: batchError } = await supabase
@@ -406,11 +419,12 @@ async function syncWorkspaceContacts(
           .eq('id', contact.id)
 
         pushed++
+        console.log(`[Cron] Pushed contact "${contact.display_name}" to Google`)
       } else {
-        skippedPush++
+        errors.push(`Push failed for "${contact.display_name}" - no resource name returned`)
       }
     } catch (err: any) {
-      errors.push(`Push error: ${err?.message || 'Unknown error'}`)
+      errors.push(`Push error for "${contact.display_name}": ${err?.message || 'Unknown error'}`)
     }
   }
 
@@ -473,6 +487,7 @@ async function updateSyncStatus(
 
 /**
  * Push a contact to Google People API
+ * Returns resourceName on success, throws on error
  */
 async function pushContactToGoogle(
   accessToken: string,
@@ -482,38 +497,38 @@ async function pushContactToGoogle(
     emailAddresses?: Array<{ value: string; type?: string }>
   }
 ): Promise<string | null> {
-  try {
-    const response = await fetch('https://people.googleapis.com/v1/people:createContact', {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${accessToken}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        names: [{ givenName: contact.displayName }],
-        phoneNumbers: contact.phoneNumbers.map(p => ({
-          value: p.value,
-          type: p.type || 'mobile',
-        })),
-        emailAddresses: contact.emailAddresses?.map(e => ({
-          value: e.value,
-          type: e.type || 'other',
-        })) || [],
-      }),
-    })
+  const response = await fetch('https://people.googleapis.com/v1/people:createContact', {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      names: [{ givenName: contact.displayName }],
+      phoneNumbers: contact.phoneNumbers.map(p => ({
+        value: p.value,
+        type: p.type || 'mobile',
+      })),
+      emailAddresses: contact.emailAddresses?.map(e => ({
+        value: e.value,
+        type: e.type || 'other',
+      })) || [],
+    }),
+  })
 
-    if (!response.ok) {
-      const errorText = await response.text()
-      console.error('Failed to push contact to Google:', errorText)
-      return null
+  if (!response.ok) {
+    const errorData = await response.json().catch(() => ({ error: { message: response.statusText } }))
+    const errorMessage = errorData?.error?.message || response.statusText
+    console.error(`[Cron] Push API error (${response.status}): ${errorMessage}`)
+
+    if (response.status === 403) {
+      throw new Error(`Permission denied - need to reconnect Google with write access`)
     }
-
-    const data = await response.json()
-    return data.resourceName || null
-  } catch (error) {
-    console.error('Error pushing contact to Google:', error)
-    return null
+    throw new Error(`Google API error: ${errorMessage}`)
   }
+
+  const data = await response.json()
+  return data.resourceName || null
 }
 
 /**
