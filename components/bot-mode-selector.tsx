@@ -99,7 +99,10 @@ export function BotModeSelector({ channelId, isAdmin = false }: BotModeSelectorP
   // Local state for form
   const [showAdvanced, setShowAdvanced] = useState(false)
   const [apiKey, setApiKey] = useState('')
-  const [apiUrl, setApiUrl] = useState('http://localhost:8000')
+  // Default BLOE API URL - update this to your production URL
+  const DEFAULT_BLOE_API_URL = 'https://web-production-eb6f3.up.railway.app'
+  const DEFAULT_BLOE_API_KEY = 'a1b2c3d4-e5f6-7890-abcd-ef1234567890'
+  const [apiUrl, setApiUrl] = useState(DEFAULT_BLOE_API_URL)
   const [providerId, setProviderId] = useState('')
   const [startTime, setStartTime] = useState('')
   const [endTime, setEndTime] = useState('')
@@ -124,7 +127,7 @@ export function BotModeSelector({ channelId, isAdmin = false }: BotModeSelectorP
   // Initialize form state from config
   useEffect(() => {
     if (config) {
-      setApiUrl(config.bloe_api_url || 'http://localhost:8000')
+      setApiUrl(config.bloe_api_url || DEFAULT_BLOE_API_URL)
       setProviderId(config.bloe_provider_id || '')
       setStartTime(formatMinutesToTime(config.auto_reply_start_minutes))
       setEndTime(formatMinutesToTime(config.auto_reply_end_minutes))
@@ -184,8 +187,12 @@ export function BotModeSelector({ channelId, isAdmin = false }: BotModeSelectorP
       reply_delay_ms: replyDelayMs,
     }
 
+    // Use entered key, or default key if not already configured
     if (apiKey) {
       updates.bloe_api_key = apiKey
+    } else if (!config?.bloe_api_key_set) {
+      // Auto-fill with default key when saving for first time
+      updates.bloe_api_key = DEFAULT_BLOE_API_KEY
     }
 
     updateConfig.mutate(updates)
@@ -303,9 +310,14 @@ export function BotModeSelector({ channelId, isAdmin = false }: BotModeSelectorP
               type="password"
               value={apiKey}
               onChange={(e) => setApiKey(e.target.value)}
-              placeholder={config?.bloe_api_key_set ? "Leave blank to keep existing" : "Enter API key"}
+              placeholder={config?.bloe_api_key_set ? "Leave blank to keep existing" : "Leave blank for default key"}
               className="text-sm h-8"
             />
+            {!config?.bloe_api_key_set && (
+              <p className="text-xs text-purple-600 mt-1">
+                Default key will be used if left blank
+              </p>
+            )}
           </div>
 
           {/* Provider ID */}
