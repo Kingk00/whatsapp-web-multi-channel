@@ -12,6 +12,7 @@
 
 import { SupabaseClient } from '@supabase/supabase-js'
 import { createServiceRoleClient } from '@/lib/supabase/server'
+import { decrypt } from '@/lib/encryption'
 
 // ============================================================================
 // Types
@@ -56,12 +57,21 @@ export interface BotRoutingResult {
 }
 
 // ============================================================================
-// API Key Decryption (placeholder - implement your encryption scheme)
+// API Key Decryption
 // ============================================================================
 
 async function decryptApiKey(encrypted: string): Promise<string> {
-  // TODO: Implement actual decryption using AES-256-GCM
-  // For now, return as-is (assumes key is stored plaintext during development)
+  // If it looks like an encrypted string (contains colons from our format), decrypt it
+  // Format: salt:iv:authTag:encryptedData
+  if (encrypted && encrypted.includes(':') && encrypted.split(':').length === 4) {
+    try {
+      return decrypt(encrypted)
+    } catch (error) {
+      console.error('[Bot Router] Failed to decrypt API key, using as-is:', error)
+      return encrypted
+    }
+  }
+  // Otherwise return as-is (plaintext key for development)
   return encrypted
 }
 
