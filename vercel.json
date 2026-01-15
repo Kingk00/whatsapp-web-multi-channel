@@ -5,6 +5,10 @@
       "schedule": "* * * * *"
     },
     {
+      "path": "/api/cron/process-media",
+      "schedule": "* * * * *"
+    },
+    {
       "path": "/api/cron/channel-health",
       "schedule": "*/5 * * * *"
     },

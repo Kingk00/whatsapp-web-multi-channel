@@ -17,6 +17,11 @@ import { SupabaseClient } from '@supabase/supabase-js'
 import { createServiceRoleClient } from '@/lib/supabase/server'
 import { getOrCreateChat, updateChatLastMessage, markChatAsRead } from '@/lib/chat-helpers'
 import { processThroughBotIfConfigured } from '@/lib/bot-router'
+import { decrypt } from '@/lib/encryption'
+
+// Conditional logging - only log when WEBHOOK_DEBUG=true
+const DEBUG = process.env.WEBHOOK_DEBUG === 'true'
+const log = DEBUG ? (...args: any[]) => console.log('[Webhook Processor]', ...args) : () => {}
 
 // ============================================================================
 // Types
@@ -164,12 +169,11 @@ async function processMessageEvent(
   // Handle both single message and batch formats
   const messages = event.messages || (event.data ? [event.data] : [event])
 
-  const results: ProcessingResult[] = []
-
-  for (const messageData of messages) {
-    const result = await processSingleMessage(supabase, channel, messageData)
-    results.push(result)
-  }
+  // PERFORMANCE: Process messages in parallel instead of sequentially
+  // This significantly improves batch processing time (N messages in O(1) instead of O(N))
+  const results = await Promise.all(
+    messages.map(messageData => processSingleMessage(supabase, channel, messageData))
+  )
 
   const successCount = results.filter((r) => r.success).length
   const failCount = results.length - successCount
@@ -251,23 +255,42 @@ async function processSingleMessage(
     // Check if this is a view-once message
     const isViewOnce = messageData.is_view_once ?? messageData.viewOnce ?? false
 
-    // Extract media info if present - handle various Whapi formats
-    // Also fetch from Whapi if link not present but media ID is
-    // As a last resort, downloads and stores media in Supabase Storage
-    // For view-once messages, we MUST download and store immediately as the URL expires quickly
-    const mediaInfo = await extractMediaInfoWithFetch(supabase, channel.id, messageData, messageType, isViewOnce)
-    let mediaUrl = mediaInfo?.url || null
-    let mediaMetadata = mediaInfo?.metadata || null
-    let storagePath = mediaInfo?.storagePath || null
+    // PERFORMANCE: Extract media info without blocking API calls
+    // For view-once messages, we MUST download immediately as URL expires quickly
+    // For regular messages, queue for background processing if URL not in webhook payload
+    let mediaUrl: string | null = null
+    let mediaMetadata: Record<string, any> | null = null
+    let storagePath: string | null = null
 
-    // For view-once messages, if we got a URL but didn't store it, force download now
-    if (isViewOnce && mediaUrl && !storagePath) {
-      console.log('[Webhook Processor] View-once message - forcing download and storage')
-      const forceDownload = await forceDownloadAndStore(supabase, channel.id, channel.workspace_id, mediaUrl, messageType, mediaMetadata)
-      if (forceDownload) {
-        mediaUrl = forceDownload.url
-        storagePath = forceDownload.storagePath
-        mediaMetadata = { ...mediaMetadata, ...forceDownload.metadata, stored: true }
+    if (isViewOnce) {
+      // View-once messages need immediate download - URL expires quickly
+      log('View-once message detected - using blocking fetch')
+      const mediaInfo = await extractMediaInfoWithFetch(supabase, channel.id, messageData, messageType, isViewOnce)
+      mediaUrl = mediaInfo?.url || null
+      mediaMetadata = mediaInfo?.metadata || null
+      storagePath = mediaInfo?.storagePath || null
+
+      // Force download if we got a URL but didn't store it
+      if (mediaUrl && !storagePath) {
+        log('View-once message - forcing download and storage')
+        const forceDownload = await forceDownloadAndStore(supabase, channel.id, channel.workspace_id, mediaUrl, messageType, mediaMetadata)
+        if (forceDownload) {
+          mediaUrl = forceDownload.url
+          storagePath = forceDownload.storagePath
+          mediaMetadata = { ...mediaMetadata, ...forceDownload.metadata, stored: true }
+        }
+      }
+    } else {
+      // PERFORMANCE: Non-blocking extraction for regular messages
+      // Only extract what's directly in the webhook payload - no API calls
+      const quickMedia = extractMediaInfoQuick(messageData, messageType)
+      mediaUrl = quickMedia?.url || null
+      mediaMetadata = quickMedia?.metadata || null
+
+      // If no URL but there's media, queue for background fetch
+      if (!mediaUrl && hasMediaToFetch(messageData, messageType)) {
+        log('Media URL not in webhook payload - queueing for background fetch')
+        // Note: We'll queue after the message is created so we have the message ID
       }
     }
 
@@ -325,6 +348,20 @@ async function processSingleMessage(
         action: 'error',
         error: messageError.message,
       }
+    }
+
+    // PERFORMANCE: Queue media for background fetch if needed
+    // Only queue if: not view-once (already handled), no URL, and has media to fetch
+    if (!isViewOnce && !mediaUrl && message?.id && hasMediaToFetch(messageData, messageType)) {
+      await queueMediaFetch(supabase, {
+        channelId: channel.id,
+        messageId: message.id,
+        workspaceId: channel.workspace_id,
+        waMessageId,
+        mediaId: getMediaIdFromMessage(messageData),
+        mediaType: messageType,
+        isViewOnce: false,
+      })
     }
 
     // Update chat's last message info and unread count
@@ -1017,9 +1054,6 @@ async function fetchChannelPhoneFromWhapi(
   channelId: string
 ): Promise<string | null> {
   try {
-    // Import decrypt function
-    const { decrypt } = await import('@/lib/encryption')
-
     // Get the Whapi token for this channel
     const { data: tokenData } = await supabase
       .from('channel_tokens')
@@ -1169,12 +1203,9 @@ async function extractMediaInfoWithFetch(
     return null
   }
 
-  console.log('[Webhook Processor] Attempting to fetch media. Media ID:', mediaId, 'Message ID:', waMessageId)
+  log('Attempting to fetch media. Media ID:', mediaId, 'Message ID:', waMessageId)
 
   try {
-    // Import decrypt function
-    const { decrypt } = await import('@/lib/encryption')
-
     // Get the Whapi token and channel info for this channel
     const { data: tokenData } = await supabase
       .from('channel_tokens')
@@ -1642,6 +1673,120 @@ function extractMediaInfo(
   }
 
   return null
+}
+
+// ============================================================================
+// PERFORMANCE: Non-blocking Media Extraction & Queueing
+// ============================================================================
+
+/**
+ * Quick media extraction - only looks at webhook payload, no API calls
+ * PERFORMANCE: This is the fast path for webhook processing
+ */
+function extractMediaInfoQuick(
+  messageData: any,
+  messageType: string
+): { url: string; metadata: Record<string, any> } | null {
+  // This just calls the existing extractMediaInfo which doesn't make API calls
+  return extractMediaInfo(messageData, messageType)
+}
+
+/**
+ * Check if message has media that should be fetched in background
+ */
+function hasMediaToFetch(messageData: any, messageType: string): boolean {
+  // Media types that can have attachments
+  const mediaTypes = ['image', 'video', 'audio', 'voice', 'ptt', 'document', 'sticker']
+  if (!mediaTypes.includes(messageType)) {
+    return false
+  }
+
+  // Check if there's a media object with an ID
+  const mediaObject =
+    messageData.image ||
+    messageData.video ||
+    messageData.audio ||
+    messageData.voice ||
+    messageData.ptt ||
+    messageData.document ||
+    messageData.sticker
+
+  // Has media to fetch if there's a media object or media ID
+  return !!(mediaObject?.id || messageData.id)
+}
+
+/**
+ * Extract media ID from message data
+ */
+function getMediaIdFromMessage(messageData: any): string | null {
+  const mediaObject =
+    messageData.image ||
+    messageData.video ||
+    messageData.audio ||
+    messageData.voice ||
+    messageData.ptt ||
+    messageData.document ||
+    messageData.sticker
+
+  return mediaObject?.id || null
+}
+
+/**
+ * Queue media for background fetch
+ * PERFORMANCE: Non-blocking - just inserts into queue table
+ */
+async function queueMediaFetch(
+  supabase: SupabaseClient,
+  params: {
+    channelId: string
+    messageId: string
+    workspaceId: string
+    waMessageId: string
+    mediaId: string | null
+    mediaType: string
+    isViewOnce: boolean
+  }
+): Promise<void> {
+  try {
+    // Use the database function for atomic insert
+    const { error: rpcError } = await supabase.rpc('queue_media_fetch', {
+      p_channel_id: params.channelId,
+      p_message_id: params.messageId,
+      p_workspace_id: params.workspaceId,
+      p_wa_message_id: params.waMessageId,
+      p_media_id: params.mediaId,
+      p_media_type: params.mediaType,
+      p_is_view_once: params.isViewOnce,
+    })
+
+    if (rpcError) {
+      // Fallback to direct insert if RPC doesn't exist
+      log('RPC queue_media_fetch failed, using fallback insert:', rpcError.message)
+      const { error: insertError } = await supabase
+        .from('media_fetch_queue')
+        .insert({
+          channel_id: params.channelId,
+          message_id: params.messageId,
+          workspace_id: params.workspaceId,
+          wa_message_id: params.waMessageId,
+          media_id: params.mediaId,
+          media_type: params.mediaType,
+          is_view_once: params.isViewOnce,
+          status: 'pending',
+        })
+
+      if (insertError) {
+        console.error('[Webhook Processor] Failed to queue media fetch:', insertError)
+      } else {
+        log('Media fetch queued successfully (fallback)')
+      }
+    } else {
+      log('Media fetch queued successfully')
+    }
+  } catch (error) {
+    console.error('[Webhook Processor] Error queueing media fetch:', error)
+    // Don't throw - queueing failure shouldn't fail the webhook
+  }
 }
 
 /**

@@ -7,10 +7,63 @@ import {
 } from '@/lib/webhook-verification'
 import { processWebhookEvent } from '@/lib/webhook-processor'
 
+// Conditional logging - only log when WEBHOOK_DEBUG=true
+const DEBUG = process.env.WEBHOOK_DEBUG === 'true'
+const log = DEBUG ? (...args: any[]) => console.log('[Webhook]', ...args) : () => {}
+
+/**
+ * Process webhook in background and update the log entry
+ */
+async function processWebhookInBackground(
+  channel: any,
+  payload: any,
+  channelId: string,
+  logEntryId: string | null
+) {
+  const supabase = createServiceRoleClient()
+
+  try {
+    log('Background processing started for channel:', channelId)
+
+    const processingResult = await processWebhookEvent(channel, payload)
+
+    // Update webhook event record with processing result (by ID, not JSONB)
+    if (logEntryId) {
+      await supabase
+        .from('webhook_events')
+        .update({
+          processed_at: new Date().toISOString(),
+          error: processingResult.success ? null : processingResult.error,
+        })
+        .eq('id', logEntryId)
+    }
+
+    log('Background processing completed:', processingResult.success ? 'success' : 'failed')
+  } catch (error) {
+    console.error('[Webhook] Background processing error:', error)
+
+    // Update webhook event with error
+    if (logEntryId) {
+      await supabase
+        .from('webhook_events')
+        .update({
+          processed_at: new Date().toISOString(),
+          error: error instanceof Error ? error.message : 'Unknown error',
+        })
+        .eq('id', logEntryId)
+    }
+  }
+}
+
 /**
  * POST /api/webhooks/whapi/[channelId]
  *
  * Webhook endpoint to receive events from Whapi.cloud
+ *
+ * PERFORMANCE OPTIMIZED:
+ * - Returns 200 immediately after validation
+ * - Processes webhook in background (non-blocking)
+ * - Uses ID-based updates instead of JSONB comparison
  *
  * Security:
  * - Each channel has a unique webhook_secret (UUID)
@@ -19,7 +72,7 @@ import { processWebhookEvent } from '@/lib/webhook-processor'
  *
  * Event Processing:
  * - All webhook events are logged to webhook_events table for debugging
- * - Idempotent message processing will be implemented in webhook-processor.ts
+ * - Idempotent message processing in webhook-processor.ts
  * - Uses (channel_id, wa_message_id) for deduplication, NOT event.id
  *
  * Example webhook URL to configure in Whapi.cloud:
@@ -29,26 +82,19 @@ export async function POST(
   request: NextRequest,
   { params }: { params: Promise<{ channelId: string }> }
 ) {
-  const startTime = Date.now()
-
   try {
     const { channelId } = await params
 
-    // Debug logging
-    console.log('[Webhook] Received POST request')
-    console.log('[Webhook] Channel ID:', channelId)
-    console.log('[Webhook] URL:', request.url)
+    log('Received POST request, channel:', channelId)
 
     // Extract webhook secret from request
     const providedSecret = extractWebhookSecret(request)
-    console.log('[Webhook] Secret provided:', providedSecret ? 'Yes' : 'No')
 
     // Verify webhook secret
     const verification = await verifyWebhookSecret(channelId, providedSecret)
-    console.log('[Webhook] Verification result:', verification.valid ? 'Valid' : verification.error)
 
     if (!verification.valid) {
-      console.error('[Webhook] Verification failed:', verification.error)
+      log('Verification failed:', verification.error)
       return NextResponse.json(
         { error: verification.error || 'Webhook verification failed' },
         { status: 401 }
@@ -59,9 +105,9 @@ export async function POST(
     let payload: any
     try {
       payload = await request.json()
-      console.log('[Webhook] Payload received:', JSON.stringify(payload).substring(0, 500))
+      log('Payload received, size:', JSON.stringify(payload).length)
     } catch (error) {
-      console.error('[Webhook] JSON parse error:', error)
+      log('JSON parse error:', error)
       return NextResponse.json(
         { error: 'Invalid JSON payload' },
         { status: 400 }
@@ -76,13 +122,12 @@ export async function POST(
       )
     }
 
-    // Log webhook event for debugging
-    // All events are stored regardless of processing outcome
+    // Log webhook event for debugging - get ID for background update
     const supabase = createServiceRoleClient()
-
     const eventType = payload.event || payload.type || 'unknown'
+    let logEntryId: string | null = null
 
-    const { error: logError } = await supabase
+    const { data: logEntry, error: logError } = await supabase
       .from('webhook_events')
       .insert({
         channel_id: channelId,
@@ -90,50 +135,39 @@ export async function POST(
         payload: payload,
         created_at: new Date().toISOString(),
       })
+      .select('id')
+      .single()
 
     if (logError) {
       // Don't fail the webhook if logging fails
-      // But we should be aware of it
-      console.error('Failed to log webhook event:', logError)
+      log('Failed to log webhook event:', logError.message)
+    } else {
+      logEntryId = logEntry?.id || null
     }
 
-    // Process webhook event with idempotent message handling
-    // Uses (channel_id, wa_message_id) for deduplication, NOT event.id
-    const processingResult = await processWebhookEvent(
-      verification.channel!,
-      payload
-    )
+    // PERFORMANCE: Return 200 immediately, process in background
+    // Use setImmediate to defer processing to next tick
+    setImmediate(() => {
+      processWebhookInBackground(
+        verification.channel!,
+        payload,
+        channelId,
+        logEntryId
+      )
+    })
 
-    // Update webhook event record with processing result
-    if (!logError) {
-      await supabase
-        .from('webhook_events')
-        .update({
-          processed_at: new Date().toISOString(),
-          error: processingResult.success ? null : processingResult.error,
-        })
-        .eq('channel_id', channelId)
-        .eq('payload', payload)
-        .order('created_at', { ascending: false })
-        .limit(1)
-    }
-
-    const processingTime = Date.now() - startTime
-
+    // Return immediately - processing continues in background
     return NextResponse.json(
       {
-        success: processingResult.success,
-        message: 'Webhook processed',
+        status: 'accepted',
+        message: 'Webhook queued for processing',
         channel_id: channelId,
         event_type: eventType,
-        action: processingResult.action,
-        details: processingResult.details,
-        processing_time_ms: processingTime,
       },
       { status: 200 }
     )
   } catch (error) {
-    console.error('Webhook processing error:', error)
+    console.error('[Webhook] Request handling error:', error)
 
     return NextResponse.json(
       {

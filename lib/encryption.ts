@@ -11,6 +11,62 @@ const DEK_LENGTH = 32 // 256 bits for AES-256
 const dekCache = new Map<string, { dek: Buffer; version: number; expiresAt: number }>()
 const DEK_CACHE_TTL_MS = 5 * 60 * 1000 // 5 minutes
 
+// ============================================================================
+// PERFORMANCE: PBKDF2 Key Derivation Cache
+// ============================================================================
+// PBKDF2 with 100,000 iterations is expensive (~20ms per call)
+// Cache derived keys by salt to avoid redundant computation
+
+interface DerivedKeyCache {
+  key: Buffer
+  expiry: number
+}
+
+const pbkdf2Cache = new Map<string, DerivedKeyCache>()
+const PBKDF2_CACHE_TTL_MS = 5 * 60 * 1000 // 5 minutes
+
+/**
+ * Derive key from ENCRYPTION_KEY using PBKDF2 with caching
+ * PERFORMANCE: Caches derived keys to avoid expensive PBKDF2 computation
+ */
+function deriveKeyCached(salt: Buffer): Buffer {
+  const saltHex = salt.toString('hex')
+  const now = Date.now()
+
+  // Check cache
+  const cached = pbkdf2Cache.get(saltHex)
+  if (cached && cached.expiry > now) {
+    return cached.key
+  }
+
+  // Cache miss - derive key (expensive operation)
+  const key = crypto.pbkdf2Sync(
+    process.env.ENCRYPTION_KEY!,
+    salt,
+    100000,
+    32,
+    'sha256'
+  )
+
+  // Cache the derived key
+  pbkdf2Cache.set(saltHex, {
+    key,
+    expiry: now + PBKDF2_CACHE_TTL_MS,
+  })
+
+  return key
+}
+
+// Cleanup expired PBKDF2 cache entries periodically
+setInterval(() => {
+  const now = Date.now()
+  for (const [key, entry] of pbkdf2Cache.entries()) {
+    if (entry.expiry < now) {
+      pbkdf2Cache.delete(key)
+    }
+  }
+}, 60000) // Every minute
+
 /**
  * Encrypt sensitive data (e.g., Whapi tokens) using AES-256-GCM
  * @param text - Plain text to encrypt
@@ -55,6 +111,8 @@ export function encrypt(text: string): string {
 
 /**
  * Decrypt data encrypted with encrypt()
+ * PERFORMANCE: Uses cached key derivation to avoid expensive PBKDF2 on repeat calls
+ *
  * @param encryptedText - Encrypted string in format: salt:iv:authTag:encryptedData
  * @returns Decrypted plain text
  */
@@ -77,14 +135,8 @@ export function decrypt(encryptedText: string): string {
     const iv = Buffer.from(ivHex, 'hex')
     const authTag = Buffer.from(authTagHex, 'hex')
 
-    // Derive key from ENCRYPTION_KEY using same parameters as encrypt()
-    const key = crypto.pbkdf2Sync(
-      process.env.ENCRYPTION_KEY,
-      salt,
-      100000,
-      32,
-      'sha256'
-    )
+    // PERFORMANCE: Use cached key derivation
+    const key = deriveKeyCached(salt)
 
     // Create decipher
     const decipher = crypto.createDecipheriv(ALGORITHM, key, iv)
