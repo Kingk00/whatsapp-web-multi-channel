@@ -281,7 +281,10 @@ async function handleBotResponse(
     return
   }
 
-  switch (response.action) {
+  // Normalize action to uppercase (bloe-engine may return lowercase)
+  const action = response.action?.toUpperCase() as BotResponse['action']
+
+  switch (action) {
     case 'REPLY':
       if (!response.reply_text) return
 
