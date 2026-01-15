@@ -131,8 +131,20 @@ export async function shouldBotProcess(
     .single()
 
   if (configError || !config || config.bot_mode === 'off') {
+    console.log('[Bot Router] shouldBotProcess: No config or bot off', {
+      hasConfig: !!config,
+      mode: config?.bot_mode,
+      error: configError?.message
+    })
     return { should: false, config: null }
   }
+
+  console.log('[Bot Router] shouldBotProcess: Config found', {
+    mode: config.bot_mode,
+    provider_id: config.bloe_provider_id,
+    api_url: config.bloe_api_url,
+    has_api_key: !!config.bloe_api_key_encrypted,
+  })
 
   // Check chat-level pause
   const { data: chat } = await supabase
@@ -358,6 +370,13 @@ export async function routeThroughBot(
   }
 
   try {
+    console.log('[Bot Router] Calling bot API:', {
+      url: config.bloe_api_url,
+      provider_id: config.bloe_provider_id,
+      mode: config.bot_mode,
+      message_preview: context.messageText.substring(0, 50),
+    })
+
     // Decrypt API key
     const apiKey = await decryptApiKey(config.bloe_api_key_encrypted)
 
@@ -387,12 +406,14 @@ export async function routeThroughBot(
     clearTimeout(timeout)
 
     if (!response.ok) {
-      throw new Error(`Bot API error: ${response.status}`)
+      const errorText = await response.text()
+      console.error('[Bot Router] Bot API error:', response.status, errorText)
+      throw new Error(`Bot API error: ${response.status} - ${errorText}`)
     }
 
     const botResponse: BotResponse = await response.json()
 
-    console.log('[Bot Router] Bot response:', botResponse.action, 'intent:', botResponse.intent)
+    console.log('[Bot Router] Bot response:', JSON.stringify(botResponse))
 
     // Log for learning (all modes except off)
     const learningLogId = await logBotInteraction(supabase, context, botResponse)
