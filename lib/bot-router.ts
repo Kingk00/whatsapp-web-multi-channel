@@ -61,17 +61,31 @@ export interface BotRoutingResult {
 // ============================================================================
 
 async function decryptApiKey(encrypted: string): Promise<string> {
+  console.log('[Bot Router] decryptApiKey input:', {
+    exists: !!encrypted,
+    length: encrypted?.length,
+    hasColons: encrypted?.includes(':'),
+    colonCount: encrypted?.split(':').length,
+    preview: encrypted?.substring(0, 20) + '...',
+  })
+
   // If it looks like an encrypted string (contains colons from our format), decrypt it
   // Format: salt:iv:authTag:encryptedData
   if (encrypted && encrypted.includes(':') && encrypted.split(':').length === 4) {
     try {
-      return decrypt(encrypted)
+      const decrypted = decrypt(encrypted)
+      console.log('[Bot Router] Decrypted API key:', {
+        length: decrypted.length,
+        preview: decrypted.substring(0, 8) + '***',
+      })
+      return decrypted
     } catch (error) {
       console.error('[Bot Router] Failed to decrypt API key, using as-is:', error)
       return encrypted
     }
   }
   // Otherwise return as-is (plaintext key for development)
+  console.log('[Bot Router] Using plaintext API key (not encrypted format)')
   return encrypted
 }
 
