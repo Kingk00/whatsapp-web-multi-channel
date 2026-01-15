@@ -57,15 +57,19 @@ export async function GET(request: NextRequest) {
         )
       }
 
-      // Mark as processing
+      // Mark as processing - increment attempts for each job
       if (fallbackJobs && fallbackJobs.length > 0) {
-        await supabase
-          .from('media_fetch_queue')
-          .update({
-            status: 'processing',
-            attempts: supabase.sql`attempts + 1`,
-          })
-          .in('id', fallbackJobs.map((j: any) => j.id))
+        await Promise.all(
+          fallbackJobs.map((job: any) =>
+            supabase
+              .from('media_fetch_queue')
+              .update({
+                status: 'processing',
+                attempts: job.attempts + 1,
+              })
+              .eq('id', job.id)
+          )
+        )
       }
 
       return await processJobs(supabase, fallbackJobs || [], startTime)
