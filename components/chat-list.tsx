@@ -105,7 +105,7 @@ export function ChatList({
       }
       return response.json()
     },
-    refetchInterval: 30000,
+    refetchInterval: 5000, // Refresh every 5 seconds for near-realtime updates
   })
 
   // Fetch archived chats
