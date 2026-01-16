@@ -283,6 +283,7 @@ async function handleBotResponse(
 
   // Normalize action to uppercase (bloe-engine may return lowercase)
   const action = response.action?.toUpperCase() as BotResponse['action']
+  console.log('[Bot Router] Handling action:', action, 'original:', response.action, 'reply_text:', response.reply_text?.substring(0, 30))
 
   switch (action) {
     case 'REPLY':
@@ -323,7 +324,8 @@ async function handleBotResponse(
         console.log('[Bot Router] Full mode - queued reply to outbox')
       } else if (config.bot_mode === 'semi') {
         // Store draft for admin approval
-        await supabase.from('chat_drafts').upsert(
+        console.log('[Bot Router] Semi mode - saving draft for chat:', context.chatId)
+        const { error: draftError } = await supabase.from('chat_drafts').upsert(
           {
             chat_id: context.chatId,
             learning_log_id: learningLogId,
@@ -335,6 +337,9 @@ async function handleBotResponse(
           },
           { onConflict: 'chat_id' }
         )
+        if (draftError) {
+          console.error('[Bot Router] Failed to save draft:', draftError)
+        }
 
         console.log('[Bot Router] Semi mode - stored draft for approval')
       }
