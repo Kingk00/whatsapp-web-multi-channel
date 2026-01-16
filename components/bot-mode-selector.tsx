@@ -30,6 +30,12 @@ interface BotConfig {
   reply_delay_ms: number
 }
 
+interface BloeProvider {
+  provider_id: string
+  display_name: string
+  active?: boolean
+}
+
 interface BotModeSelectorProps {
   channelId: string
   isAdmin?: boolean
@@ -98,17 +104,52 @@ export function BotModeSelector({ channelId, isAdmin = false }: BotModeSelectorP
 
   // Local state for form
   const [showAdvanced, setShowAdvanced] = useState(false)
-  const [apiKey, setApiKey] = useState('')
-  // Default BLOE API URL - update this to your production URL
-  const DEFAULT_BLOE_API_URL = 'https://web-production-eb6f3.up.railway.app'
-  const DEFAULT_BLOE_API_KEY = 'a1b2c3d4-e5f6-7890-abcd-ef1234567890'
-  const [apiUrl, setApiUrl] = useState(DEFAULT_BLOE_API_URL)
+  // BLOE API URL and Key - Fixed production values
+  const BLOE_API_URL = 'https://web-production-eb6f3.up.railway.app'
+  const BLOE_API_KEY = 'a1b2c3d4-e5f6-7890-abcd-ef1234567890'
+  const [apiUrl, setApiUrl] = useState(BLOE_API_URL)
   const [providerId, setProviderId] = useState('')
   const [startTime, setStartTime] = useState('')
   const [endTime, setEndTime] = useState('')
   const [timezone, setTimezone] = useState('Europe/London')
   const [autoPauseOnEscalate, setAutoPauseOnEscalate] = useState(true)
   const [replyDelayMs, setReplyDelayMs] = useState(1500)
+
+  // Providers list from Bloe API
+  const [providers, setProviders] = useState<BloeProvider[]>([])
+  const [providersLoading, setProvidersLoading] = useState(false)
+  const [providersError, setProvidersError] = useState<string | null>(null)
+
+  // Fetch providers from local proxy API (avoids CORS issues)
+  const fetchProviders = async () => {
+    setProvidersLoading(true)
+    setProvidersError(null)
+    try {
+      const response = await fetch('/api/bloe/providers', {
+        method: 'GET',
+        headers: { 'Accept': 'application/json' },
+      })
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}))
+        throw new Error(errorData.error || `Failed to fetch providers: ${response.status}`)
+      }
+      const data = await response.json()
+      setProviders(data.providers || [])
+    } catch (error: any) {
+      console.error('Error fetching providers:', error)
+      setProvidersError(error.message || 'Failed to load providers')
+      setProviders([])
+    } finally {
+      setProvidersLoading(false)
+    }
+  }
+
+  // Fetch providers on mount
+  useEffect(() => {
+    if (isAdmin) {
+      fetchProviders()
+    }
+  }, [isAdmin])
 
   // Fetch current config
   const { data: configData, isLoading } = useQuery({
@@ -127,7 +168,8 @@ export function BotModeSelector({ channelId, isAdmin = false }: BotModeSelectorP
   // Initialize form state from config
   useEffect(() => {
     if (config) {
-      setApiUrl(config.bloe_api_url || DEFAULT_BLOE_API_URL)
+      // Always use the fixed BLOE API URL
+      setApiUrl(BLOE_API_URL)
       setProviderId(config.bloe_provider_id || '')
       setStartTime(formatMinutesToTime(config.auto_reply_start_minutes))
       setEndTime(formatMinutesToTime(config.auto_reply_end_minutes))
@@ -163,7 +205,6 @@ export function BotModeSelector({ channelId, isAdmin = false }: BotModeSelectorP
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['bot-config', channelId] })
-      setApiKey('') // Clear API key input after save
       addToast('Bot configuration updated', 'success')
     },
     onError: (error: Error) => {
@@ -178,21 +219,14 @@ export function BotModeSelector({ channelId, isAdmin = false }: BotModeSelectorP
 
   const handleSaveSettings = () => {
     const updates: any = {
-      bloe_api_url: apiUrl,
+      bloe_api_url: BLOE_API_URL, // Always use the fixed production URL
+      bloe_api_key: BLOE_API_KEY, // Always use the fixed API key
       bloe_provider_id: providerId || null,
       auto_reply_start_minutes: parseTimeToMinutes(startTime),
       auto_reply_end_minutes: parseTimeToMinutes(endTime),
       auto_reply_timezone: timezone,
       auto_pause_on_escalate: autoPauseOnEscalate,
       reply_delay_ms: replyDelayMs,
-    }
-
-    // Use entered key, or default key if not already configured
-    if (apiKey) {
-      updates.bloe_api_key = apiKey
-    } else if (!config?.bloe_api_key_set) {
-      // Auto-fill with default key when saving for first time
-      updates.bloe_api_key = DEFAULT_BLOE_API_KEY
     }
 
     updateConfig.mutate(updates)
@@ -215,7 +249,7 @@ export function BotModeSelector({ channelId, isAdmin = false }: BotModeSelectorP
     )
   }
 
-  const needsConfig = currentMode !== 'off' && (!config?.bloe_api_key_set || !providerId)
+  const needsConfig = currentMode !== 'off' && !providerId
 
   return (
     <div className="mt-4 p-4 rounded-lg bg-gradient-to-br from-purple-50 to-blue-50 border border-purple-200">
@@ -280,14 +314,14 @@ export function BotModeSelector({ channelId, isAdmin = false }: BotModeSelectorP
           <svg className="h-4 w-4 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
           </svg>
-          <span>Configure API key and Provider ID below to enable bot</span>
+          <span>Select a Provider below to enable bot</span>
         </div>
       )}
 
       {/* Advanced Settings */}
       {showAdvanced && currentMode !== 'off' && (
         <div className="space-y-3 pt-3 border-t border-purple-200">
-          {/* API URL */}
+          {/* API URL - Fixed to production */}
           <div>
             <label className="block text-xs font-medium text-purple-800 mb-1">
               Bloe API URL
@@ -295,43 +329,61 @@ export function BotModeSelector({ channelId, isAdmin = false }: BotModeSelectorP
             <Input
               type="text"
               value={apiUrl}
-              onChange={(e) => setApiUrl(e.target.value)}
-              placeholder="http://localhost:8000"
-              className="text-sm h-8"
+              readOnly
+              className="text-sm h-8 bg-gray-100 text-gray-600"
             />
+            <p className="text-xs text-purple-600 mt-1">
+              Connected to Bloe Engine
+            </p>
           </div>
 
-          {/* API Key */}
+          {/* Provider - Dropdown */}
           <div>
             <label className="block text-xs font-medium text-purple-800 mb-1">
-              API Key {config?.bloe_api_key_set && <span className="text-green-600">(configured)</span>}
+              Provider
+              {providersLoading && <span className="ml-2 text-purple-500">(loading...)</span>}
             </label>
-            <Input
-              type="password"
-              value={apiKey}
-              onChange={(e) => setApiKey(e.target.value)}
-              placeholder={config?.bloe_api_key_set ? "Leave blank to keep existing" : "Leave blank for default key"}
-              className="text-sm h-8"
-            />
-            {!config?.bloe_api_key_set && (
+            {providersError ? (
+              <div className="space-y-2">
+                <div className="text-xs text-red-600 p-2 bg-red-50 rounded border border-red-200">
+                  {providersError}
+                </div>
+                <Input
+                  type="text"
+                  value={providerId}
+                  onChange={(e) => setProviderId(e.target.value)}
+                  placeholder="Enter provider ID manually"
+                  className="text-sm h-8"
+                />
+                <button
+                  type="button"
+                  onClick={() => fetchProviders()}
+                  className="text-xs text-purple-600 hover:text-purple-800 underline"
+                >
+                  Retry loading providers
+                </button>
+              </div>
+            ) : (
+              <select
+                value={providerId}
+                onChange={(e) => setProviderId(e.target.value)}
+                className="w-full text-sm h-8 px-2 rounded-md border border-gray-300 focus:border-purple-500 focus:ring-1 focus:ring-purple-500"
+                disabled={providersLoading}
+              >
+                <option value="">Select a provider...</option>
+                {providers.map((provider) => (
+                  <option key={provider.provider_id} value={provider.provider_id}>
+                    {provider.display_name} ({provider.provider_id})
+                    {provider.active === false && ' [inactive]'}
+                  </option>
+                ))}
+              </select>
+            )}
+            {providers.length > 0 && (
               <p className="text-xs text-purple-600 mt-1">
-                Default key will be used if left blank
+                {providers.length} provider{providers.length !== 1 ? 's' : ''} available
               </p>
             )}
-          </div>
-
-          {/* Provider ID */}
-          <div>
-            <label className="block text-xs font-medium text-purple-800 mb-1">
-              Provider ID
-            </label>
-            <Input
-              type="text"
-              value={providerId}
-              onChange={(e) => setProviderId(e.target.value)}
-              placeholder="e.g., saloon_demo"
-              className="text-sm h-8"
-            />
           </div>
 
           {/* Auto-reply hours */}
