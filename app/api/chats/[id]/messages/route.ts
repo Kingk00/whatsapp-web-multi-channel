@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient, createServiceRoleClient } from '@/lib/supabase/server'
 import { decrypt } from '@/lib/encryption'
+import { processDraftSend } from '@/lib/learning'
 
 /**
  * GET /api/chats/[id]/messages
@@ -222,6 +223,21 @@ export async function POST(
     if (messageError) {
       console.error('Error creating message record:', messageError)
       // Don't fail - outbox message was created, it will be processed
+    }
+
+    // Process draft send for learning - if admin edited a draft, send correction to bot
+    try {
+      const serviceClient = createServiceRoleClient()
+      const learningResult = await processDraftSend(serviceClient, chatId, text.trim())
+      if (learningResult.hadDraft) {
+        console.log('[Send Message] Learning processed:', {
+          wasEdited: learningResult.wasEdited,
+          correctionSent: learningResult.correctionSent,
+        })
+      }
+    } catch (learningError) {
+      // Log but don't fail - learning is secondary to sending the message
+      console.error('[Send Message] Learning processing failed:', learningError)
     }
 
     // Update chat's last message
