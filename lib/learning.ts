@@ -3,9 +3,11 @@
  *
  * Tracks bot draft edits and approvals for training/learning purposes.
  * Used in semi mode to capture how admins modify bot suggestions.
+ * Sends corrections to bloe-engine so the bot learns from edits.
  */
 
 import { SupabaseClient } from '@supabase/supabase-js'
+import { decrypt } from '@/lib/encryption'
 
 // ============================================================================
 // Types
@@ -81,6 +83,75 @@ export async function dismissDraft(
 // ============================================================================
 
 /**
+ * Decrypt API key if encrypted
+ */
+async function decryptApiKey(encrypted: string): Promise<string> {
+  if (encrypted && encrypted.includes(':') && encrypted.split(':').length === 4) {
+    try {
+      return decrypt(encrypted)
+    } catch {
+      return encrypted
+    }
+  }
+  return encrypted
+}
+
+/**
+ * Send correction to bloe-engine so it learns from the edit
+ */
+async function sendCorrectionToBloe(
+  supabase: SupabaseClient,
+  channelId: string,
+  providerId: string,
+  originalMessage: string,
+  wrongResponse: string,
+  correctResponse: string
+): Promise<boolean> {
+  try {
+    // Get bot config for this channel
+    const { data: config } = await supabase
+      .from('channel_bot_config')
+      .select('bloe_api_url, bloe_api_key_encrypted')
+      .eq('channel_id', channelId)
+      .single()
+
+    if (!config?.bloe_api_url || !config?.bloe_api_key_encrypted) {
+      console.log('[Learning] No bot config, skipping correction sync')
+      return false
+    }
+
+    const apiKey = await decryptApiKey(config.bloe_api_key_encrypted)
+
+    // Send correction to bloe-engine
+    const response = await fetch(`${config.bloe_api_url}/api/bot/learn`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Bot-API-Key': apiKey,
+      },
+      body: JSON.stringify({
+        provider_id: providerId,
+        original_message: originalMessage,
+        wrong_response: wrongResponse,
+        correct_response: correctResponse,
+      }),
+    })
+
+    if (response.ok) {
+      const result = await response.json()
+      console.log('[Learning] Correction sent to bloe-engine:', result.correction_id)
+      return true
+    } else {
+      console.error('[Learning] Failed to send correction:', response.status)
+      return false
+    }
+  } catch (error) {
+    console.error('[Learning] Error sending correction:', error)
+    return false
+  }
+}
+
+/**
  * Log when a draft is edited before sending
  * This captures training data for improving bot responses
  */
@@ -120,18 +191,21 @@ export async function logDraftEdit(
 /**
  * Process sending a message when a draft was applied
  * Call this when user sends a message after applying a bot draft
+ * If the draft was edited, sends correction to bloe-engine so it learns
  */
 export async function processDraftSend(
   supabase: SupabaseClient,
   chatId: string,
   finalText: string
-): Promise<{ hadDraft: boolean; wasEdited: boolean }> {
+): Promise<{ hadDraft: boolean; wasEdited: boolean; correctionSent: boolean }> {
   // Get current draft
   const draft = await getChatDraft(supabase, chatId)
 
   if (!draft) {
-    return { hadDraft: false, wasEdited: false }
+    return { hadDraft: false, wasEdited: false, correctionSent: false }
   }
+
+  const wasEdited = draft.draft_text !== finalText
 
   // Log the edit if there's a learning log ID
   if (draft.learning_log_id) {
@@ -144,12 +218,48 @@ export async function processDraftSend(
     )
   }
 
+  // If edited, send correction to bloe-engine so it learns
+  let correctionSent = false
+  if (wasEdited && draft.learning_log_id) {
+    try {
+      // Get learning log to find original message and provider
+      const { data: learningLog } = await supabase
+        .from('bot_learning_log')
+        .select('channel_id, inbound_text')
+        .eq('id', draft.learning_log_id)
+        .single()
+
+      if (learningLog?.channel_id && learningLog?.inbound_text) {
+        // Get provider ID from bot config
+        const { data: botConfig } = await supabase
+          .from('channel_bot_config')
+          .select('bloe_provider_id')
+          .eq('channel_id', learningLog.channel_id)
+          .single()
+
+        if (botConfig?.bloe_provider_id) {
+          correctionSent = await sendCorrectionToBloe(
+            supabase,
+            learningLog.channel_id,
+            botConfig.bloe_provider_id,
+            learningLog.inbound_text,  // Original customer message
+            draft.draft_text,          // Bot's wrong suggestion
+            finalText                  // Admin's corrected response
+          )
+        }
+      }
+    } catch (error) {
+      console.error('[Learning] Failed to send correction:', error)
+    }
+  }
+
   // Clear the draft
   await supabase.from('chat_drafts').delete().eq('chat_id', chatId)
 
   return {
     hadDraft: true,
-    wasEdited: draft.draft_text !== finalText,
+    wasEdited,
+    correctionSent,
   }
 }
 
