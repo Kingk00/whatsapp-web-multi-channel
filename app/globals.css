@@ -112,6 +112,14 @@
     /* Better font rendering */
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
+    /* Mobile-first scaling - smaller on mobile for better fit */
+    font-size: 14px;
+  }
+
+  @media (min-width: 768px) {
+    html {
+      font-size: 16px;
+    }
   }
 
   body {

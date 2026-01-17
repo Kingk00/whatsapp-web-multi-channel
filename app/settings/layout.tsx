@@ -7,12 +7,31 @@
  * - Left sidebar navigation (filtered by user role)
  * - Header with back button
  * - Main content area
+ * - Collapsible menu on mobile
  */
 
 import { useEffect, useState } from 'react'
 import { usePathname, useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import { cn } from '@/lib/utils'
+
+// Menu icon for mobile
+function MenuIcon({ className }: { className?: string }) {
+  return (
+    <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
+    </svg>
+  )
+}
+
+// Close icon for mobile menu
+function CloseIcon({ className }: { className?: string }) {
+  return (
+    <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+    </svg>
+  )
+}
 
 interface NavItem {
   href: string
@@ -138,6 +157,7 @@ export default function SettingsLayout({
 
   const [userRole, setUserRole] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
 
   useEffect(() => {
     const fetchUserRole = async () => {
@@ -187,12 +207,60 @@ export default function SettingsLayout({
     )
   }
 
+  // Get current page title from pathname
+  const currentPageTitle = filteredNavItems.find(item => pathname === item.href)?.label || 'Settings'
+
+  // Handle navigation and close mobile menu
+  const handleNavigation = (href: string) => {
+    router.push(href)
+    setMobileMenuOpen(false)
+  }
+
   return (
     <div className="flex min-h-screen bg-gray-50">
-      {/* Sidebar */}
-      <aside className="flex w-64 flex-col border-r border-gray-200 bg-white">
-        {/* Sidebar Header */}
-        <div className="flex h-16 items-center border-b border-gray-200 px-4">
+      {/* Mobile Header - Only visible on mobile */}
+      <div className="fixed top-0 left-0 right-0 z-40 flex h-14 items-center justify-between border-b border-gray-200 bg-white px-4 md:hidden">
+        <button
+          onClick={() => router.push('/inbox')}
+          className="flex items-center gap-2 text-gray-600 hover:text-gray-900 min-h-[44px]"
+        >
+          <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 19l-7-7m0 0l7-7m-7 7h18" />
+          </svg>
+          <span className="font-medium text-sm">Inbox</span>
+        </button>
+
+        <span className="font-medium text-gray-900">{currentPageTitle}</span>
+
+        <button
+          onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
+          className="flex items-center justify-center min-h-[44px] min-w-[44px] text-gray-600 hover:text-gray-900"
+        >
+          {mobileMenuOpen ? <CloseIcon className="h-6 w-6" /> : <MenuIcon className="h-6 w-6" />}
+        </button>
+      </div>
+
+      {/* Mobile Menu Overlay */}
+      {mobileMenuOpen && (
+        <div
+          className="fixed inset-0 z-30 bg-black/50 md:hidden"
+          onClick={() => setMobileMenuOpen(false)}
+        />
+      )}
+
+      {/* Sidebar - Desktop: always visible, Mobile: slide-in overlay */}
+      <aside
+        className={cn(
+          'flex flex-col border-r border-gray-200 bg-white transition-transform duration-200',
+          // Desktop styles
+          'md:relative md:translate-x-0 md:w-64',
+          // Mobile styles - slide in from right
+          'fixed top-14 right-0 bottom-0 z-30 w-64',
+          mobileMenuOpen ? 'translate-x-0' : 'translate-x-full md:translate-x-0'
+        )}
+      >
+        {/* Sidebar Header - Desktop only */}
+        <div className="hidden md:flex h-16 items-center border-b border-gray-200 px-4">
           <button
             onClick={() => router.push('/inbox')}
             className="flex items-center gap-2 text-gray-600 hover:text-gray-900"
@@ -210,7 +278,7 @@ export default function SettingsLayout({
         </div>
 
         {/* Navigation */}
-        <nav className="flex-1 p-4">
+        <nav className="flex-1 p-4 overflow-y-auto">
           <div className="mb-2 px-3 text-xs font-semibold uppercase tracking-wider text-gray-500">
             Settings
           </div>
@@ -220,9 +288,9 @@ export default function SettingsLayout({
               return (
                 <li key={item.href}>
                   <button
-                    onClick={() => router.push(item.href)}
+                    onClick={() => handleNavigation(item.href)}
                     className={cn(
-                      'flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors',
+                      'flex w-full items-center gap-3 rounded-lg px-3 py-3 text-sm font-medium transition-colors min-h-[44px]',
                       isActive
                         ? 'bg-green-50 text-green-700'
                         : 'text-gray-700 hover:bg-gray-100'
@@ -248,7 +316,7 @@ export default function SettingsLayout({
       </aside>
 
       {/* Main Content */}
-      <main className="flex-1 overflow-auto">
+      <main className="flex-1 overflow-auto pt-14 md:pt-0">
         {children}
       </main>
     </div>
