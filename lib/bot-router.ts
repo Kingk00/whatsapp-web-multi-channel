@@ -462,8 +462,65 @@ export async function routeThroughBot(
 // ============================================================================
 
 /**
+ * Get recent unprocessed inbound messages from the same chat
+ * Used to combine multiple messages sent in quick succession
+ */
+async function getRecentUnprocessedMessages(
+  supabase: SupabaseClient,
+  channelId: string,
+  chatId: string,
+  currentMessageId: string,
+  windowSeconds: number = 30
+): Promise<{ id: string; text: string; wa_message_id: string }[]> {
+  const windowStart = new Date(Date.now() - windowSeconds * 1000).toISOString()
+
+  // Get recent inbound text messages from this chat that haven't been processed
+  const { data: messages } = await supabase
+    .from('messages')
+    .select('id, text, wa_message_id, created_at')
+    .eq('channel_id', channelId)
+    .eq('chat_id', chatId)
+    .eq('direction', 'inbound')
+    .eq('message_type', 'text')
+    .gte('created_at', windowStart)
+    .not('text', 'is', null)
+    .order('created_at', { ascending: true })
+
+  if (!messages || messages.length === 0) {
+    return []
+  }
+
+  // Filter out messages that have already been processed
+  const unprocessed: { id: string; text: string; wa_message_id: string }[] = []
+
+  for (const msg of messages) {
+    // Check if already processed
+    const { data: processed } = await supabase
+      .from('bot_processed_messages')
+      .select('id')
+      .eq('channel_id', channelId)
+      .eq('wa_message_id', msg.wa_message_id)
+      .eq('status', 'completed')
+      .single()
+
+    if (!processed && msg.text) {
+      unprocessed.push({
+        id: msg.id,
+        text: msg.text,
+        wa_message_id: msg.wa_message_id,
+      })
+    }
+  }
+
+  return unprocessed
+}
+
+/**
  * Process message through bot if configured
  * Call this from webhook-processor after saving inbound message
+ *
+ * BATCHING: Combines multiple messages sent in quick succession (within 30s)
+ * so the bot can respond to all questions at once instead of just one.
  */
 export async function processThroughBotIfConfigured(
   supabase: SupabaseClient,
@@ -483,21 +540,54 @@ export async function processThroughBotIfConfigured(
     return { handled: false }
   }
 
-  console.log('[Bot Router] Processing message, mode:', config.bot_mode)
+  // Get recent unprocessed messages to batch together
+  const recentMessages = await getRecentUnprocessedMessages(
+    supabase,
+    channelId,
+    chatId,
+    messageId
+  )
 
-  // Route through bot
-  return routeThroughBot(
+  // Combine all message texts if there are multiple
+  let combinedText = messageText
+  let allMessageIds = [messageId]
+
+  if (recentMessages.length > 1) {
+    // Multiple messages - combine them
+    combinedText = recentMessages.map(m => m.text).join('\n')
+    allMessageIds = recentMessages.map(m => m.wa_message_id)
+    console.log('[Bot Router] Batching', recentMessages.length, 'messages together')
+  }
+
+  console.log('[Bot Router] Processing message(s), mode:', config.bot_mode, 'count:', allMessageIds.length)
+
+  // Route through bot with combined text
+  const result = await routeThroughBot(
     supabase,
     {
       channelId,
       workspaceId,
       chatId,
-      messageId,
-      messageText,
+      messageId: allMessageIds[allMessageIds.length - 1], // Use last message ID
+      messageText: combinedText,
       messageType,
       contactId,
       timestamp,
     },
     config
   )
+
+  // Mark all batched messages as processed (not just the current one)
+  if (result.handled && allMessageIds.length > 1) {
+    for (const waMessageId of allMessageIds.slice(0, -1)) {
+      // Mark earlier messages as completed (the last one is marked by routeThroughBot)
+      await supabase.from('bot_processed_messages').upsert({
+        channel_id: channelId,
+        wa_message_id: waMessageId,
+        status: 'completed',
+      }, { onConflict: 'channel_id,wa_message_id' })
+    }
+  }
+
+  return result
 }
